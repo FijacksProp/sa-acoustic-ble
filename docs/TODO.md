@@ -21,7 +21,7 @@
 
 ## Phase 1 - Foundations (Weeks 1-2)
 - [x] Initialize monorepo structure
-- [ ] Create Flutter app shell (lecturer + student roles)
+- [x] Create Flutter app shell (lecturer + student roles)
 - [x] Create Django backend skeleton
 - [x] Define database schema (users, sessions, attendance)
 - [ ] Define proof format JSON
