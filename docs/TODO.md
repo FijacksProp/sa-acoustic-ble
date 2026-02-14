@@ -28,6 +28,12 @@
 - [x] Create API endpoints: POST /sessions, POST /attendance, GET /sessions/:id
 - [ ] Create basic login flow (mock auth)
 
+## Integration Progress (Current)
+- [x] Lecturer Live page loads sessions from backend API
+- [x] Student History page loads attendance proofs from backend API
+- [x] Loading, empty, and error states added to Live and History pages
+- [x] Backend `/api/attendance/` supports list + create with filters (`session`, `student_id`)
+
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
 - [ ] Implement Android beacon transmitter (FSK ultrasonic)
 - [ ] Implement Android beacon decoder

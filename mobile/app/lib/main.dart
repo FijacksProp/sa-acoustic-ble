@@ -280,14 +280,120 @@ class _StudentScanPageState extends State<StudentScanPage> {
   }
 }
 
-class StudentHistoryPage extends StatelessWidget {
+class StudentHistoryPage extends StatefulWidget {
   const StudentHistoryPage({super.key});
 
   @override
+  State<StudentHistoryPage> createState() => _StudentHistoryPageState();
+}
+
+class _StudentHistoryPageState extends State<StudentHistoryPage> {
+  final _api = AttendanceApiService();
+  final _studentIdController = TextEditingController();
+
+  bool _loading = true;
+  String? _error;
+  List<AttendanceProofModel> _proofs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProofs();
+  }
+
+  @override
+  void dispose() {
+    _studentIdController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProofs() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final proofs = await _api.listProofs(
+        studentId: _studentIdController.text.trim().isEmpty
+            ? null
+            : _studentIdController.text.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _proofs = proofs;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _PlaceholderPage(
-      title: 'Attendance History',
-      subtitle: 'Past attendance proofs and sync status will show here.',
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Attendance History', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _studentIdController,
+            decoration: const InputDecoration(
+              labelText: 'Filter by Student ID (optional)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: _loadProofs,
+            child: const Text('Load History'),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? _ErrorState(
+                        message: _error!,
+                        onRetry: _loadProofs,
+                      )
+                    : _proofs.isEmpty
+                        ? const _EmptyState(
+                            title: 'No attendance proofs found.',
+                          )
+                        : ListView.separated(
+                            itemCount: _proofs.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final proof = _proofs[index];
+                              return Card(
+                                child: ListTile(
+                                  title: Text(
+                                    'Student: ${proof.studentId} | Session: ${proof.sessionId}',
+                                  ),
+                                  subtitle: Text(
+                                    'RSSI ${proof.rssi} at ${proof.observedAt.toLocal()}',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -424,14 +530,102 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   }
 }
 
-class LecturerLivePage extends StatelessWidget {
+class LecturerLivePage extends StatefulWidget {
   const LecturerLivePage({super.key});
 
   @override
+  State<LecturerLivePage> createState() => _LecturerLivePageState();
+}
+
+class _LecturerLivePageState extends State<LecturerLivePage> {
+  final _api = AttendanceApiService();
+
+  bool _loading = true;
+  String? _error;
+  List<SessionModel> _sessions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSessions();
+  }
+
+  Future<void> _loadSessions() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final sessions = await _api.listSessions();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _sessions = sessions;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _PlaceholderPage(
-      title: 'Live Attendance',
-      subtitle: 'Live counts and recent check-ins will show here.',
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Live Sessions', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: _loadSessions,
+            child: const Text('Refresh Sessions'),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? _ErrorState(
+                        message: _error!,
+                        onRetry: _loadSessions,
+                      )
+                    : _sessions.isEmpty
+                        ? const _EmptyState(title: 'No sessions available.')
+                        : ListView.separated(
+                            itemCount: _sessions.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final session = _sessions[index];
+                              return Card(
+                                child: ListTile(
+                                  title: Text(
+                                    '${session.courseCode} - ${session.courseTitle}',
+                                  ),
+                                  subtitle: Text(
+                                    'Room ${session.room} | ${session.startsAt.toLocal()}',
+                                  ),
+                                  trailing: session.active
+                                      ? const Chip(label: Text('Active'))
+                                      : const Chip(label: Text('Closed')),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -475,6 +669,55 @@ class _PlaceholderPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Error',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: onRetry,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.bodyLarge,
+        textAlign: TextAlign.center,
       ),
     );
   }

@@ -29,9 +29,6 @@ class ApiClient {
     if (decoded['results'] is List<dynamic>) {
       return decoded['results'] as List<dynamic>;
     }
-    if (decoded is List<dynamic>) {
-      return decoded;
-    }
     throw ApiException('Unexpected list response format');
   }
 

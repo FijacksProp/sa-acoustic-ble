@@ -24,4 +24,26 @@ class AttendanceApiService {
     final json = await _client.postJson('/api/attendance/', proof.toJson());
     return AttendanceProofModel.fromJson(json);
   }
+
+  Future<List<AttendanceProofModel>> listProofs({
+    int? sessionId,
+    String? studentId,
+  }) async {
+    final params = <String>[];
+    if (sessionId != null) {
+      params.add('session=$sessionId');
+    }
+    if (studentId != null && studentId.trim().isNotEmpty) {
+      params.add('student_id=${Uri.encodeQueryComponent(studentId.trim())}');
+    }
+
+    final path = params.isEmpty
+        ? '/api/attendance/'
+        : '/api/attendance/?${params.join('&')}';
+    final list = await _client.getList(path);
+    return list
+        .cast<Map<String, dynamic>>()
+        .map(AttendanceProofModel.fromJson)
+        .toList();
+  }
 }
