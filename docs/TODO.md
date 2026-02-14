@@ -24,7 +24,7 @@
 - [x] Create Flutter app shell (lecturer + student roles)
 - [x] Create Django backend skeleton
 - [x] Define database schema (users, sessions, attendance)
-- [ ] Define proof format JSON
+- [x] Define proof format JSON
 - [x] Create API endpoints: POST /sessions, POST /attendance, GET /sessions/:id
 - [ ] Create basic login flow (mock auth)
 
