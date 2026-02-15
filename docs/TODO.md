@@ -26,7 +26,7 @@
 - [x] Define database schema (users, sessions, attendance)
 - [x] Define proof format JSON
 - [x] Create API endpoints: POST /sessions, POST /attendance, GET /sessions/:id
-- [ ] Create basic login flow (mock auth)
+- [x] Create basic login flow (registration + login with role)
 
 ## Integration Progress (Current)
 - [x] Lecturer Live page loads sessions from backend API
@@ -37,6 +37,7 @@
 - [x] Added scan result domain model for sensor output contract
 - [x] Added BLE scan service (real scan + fallback)
 - [x] Student scan flow now fills BLE nonce/RSSI from scan (manual BLE fields removed)
+- [x] Added role-based registration/login using matric number and auth token
 
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
 - [ ] Implement Android beacon transmitter (FSK ultrasonic)

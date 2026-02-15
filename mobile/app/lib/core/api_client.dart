@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
+import 'session_store.dart';
 
 class ApiClient {
   ApiClient({http.Client? client}) : _client = client ?? http.Client();
@@ -17,14 +18,14 @@ class ApiClient {
   ) async {
     final response = await _client.post(
       _uri(path),
-      headers: {'Content-Type': 'application/json'},
+      headers: _headers(),
       body: jsonEncode(body),
     );
     return _decodeResponse(response);
   }
 
   Future<List<dynamic>> getList(String path) async {
-    final response = await _client.get(_uri(path));
+    final response = await _client.get(_uri(path), headers: _headers());
     final decoded = _decodeResponse(response);
     if (decoded['results'] is List<dynamic>) {
       return decoded['results'] as List<dynamic>;
@@ -33,8 +34,17 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getMap(String path) async {
-    final response = await _client.get(_uri(path));
+    final response = await _client.get(_uri(path), headers: _headers());
     return _decodeResponse(response);
+  }
+
+  Map<String, String> _headers() {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    final token = SessionStore.token;
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Token $token';
+    }
+    return headers;
   }
 
   Map<String, dynamic> _decodeResponse(http.Response response) {

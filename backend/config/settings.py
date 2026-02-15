@@ -32,6 +32,7 @@ ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0"]
 
 INSTALLED_APPS = [
     "corsheaders",
+    "rest_framework.authtoken",
     "rest_framework",
     "attendance",
     'django.contrib.admin',
@@ -124,3 +125,12 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",
     r"^http://127\.0\.0\.1:\d+$",
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+}

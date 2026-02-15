@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 
 class Session(models.Model):
@@ -36,3 +37,19 @@ class AttendanceProof(models.Model):
 
     def __str__(self) -> str:
         return f"{self.student_id} @ {self.session_id}"
+
+
+class UserProfile(models.Model):
+    ROLE_STUDENT = "student"
+    ROLE_LECTURER = "lecturer"
+    ROLE_CHOICES = [
+        (ROLE_STUDENT, "Student"),
+        (ROLE_LECTURER, "Lecturer"),
+    ]
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
+    matric_number = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES)
+
+    def __str__(self) -> str:
+        return f"{self.matric_number} ({self.role})"

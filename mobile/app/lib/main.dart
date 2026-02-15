@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'core/session_store.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/session_model.dart';
 import 'services/attendance_api_service.dart';
 import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
+import 'services/auth_service.dart';
 
 void main() {
   runApp(const SaAcousticBleApp());
@@ -22,7 +24,252 @@ class SaAcousticBleApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const RoleSelectionScreen(),
+      home: const AuthGateScreen(),
+    );
+  }
+}
+
+class AuthGateScreen extends StatefulWidget {
+  const AuthGateScreen({super.key});
+
+  @override
+  State<AuthGateScreen> createState() => _AuthGateScreenState();
+}
+
+class _AuthGateScreenState extends State<AuthGateScreen> {
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSession();
+  }
+
+  Future<void> _loadSession() async {
+    await SessionStore.load();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _loading = false;
+    });
+  }
+
+  void _handleAuthenticated() {
+    setState(() {});
+  }
+
+  Future<void> _logout() async {
+    await AuthService().logout();
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (!SessionStore.isAuthenticated) {
+      return AuthScreen(onAuthenticated: _handleAuthenticated);
+    }
+
+    if (SessionStore.role == 'lecturer') {
+      return LecturerShell(onLogout: _logout);
+    }
+    return StudentShell(onLogout: _logout);
+  }
+}
+
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({super.key, required this.onAuthenticated});
+
+  final VoidCallback onAuthenticated;
+
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  final _auth = AuthService();
+  final _loginForm = GlobalKey<FormState>();
+  final _registerForm = GlobalKey<FormState>();
+
+  final _loginIdentifierController = TextEditingController();
+  final _loginPasswordController = TextEditingController();
+
+  final _regNameController = TextEditingController();
+  final _regUsernameController = TextEditingController();
+  final _regMatricController = TextEditingController();
+  final _regPasswordController = TextEditingController();
+  String _role = 'student';
+
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _loginIdentifierController.dispose();
+    _loginPasswordController.dispose();
+    _regNameController.dispose();
+    _regUsernameController.dispose();
+    _regMatricController.dispose();
+    _regPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    if (!_loginForm.currentState!.validate()) {
+      return;
+    }
+    setState(() {
+      _loading = true;
+    });
+    try {
+      await _auth.login(
+        identifier: _loginIdentifierController.text.trim(),
+        password: _loginPasswordController.text,
+      );
+      if (!mounted) {
+        return;
+      }
+      widget.onAuthenticated();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Login failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _register() async {
+    if (!_registerForm.currentState!.validate()) {
+      return;
+    }
+    setState(() {
+      _loading = true;
+    });
+    try {
+      await _auth.register(
+        fullName: _regNameController.text.trim(),
+        matricNumber: _role == 'student' ? _regMatricController.text.trim() : null,
+        username: _role == 'lecturer' ? _regUsernameController.text.trim() : null,
+        role: _role,
+        password: _regPasswordController.text,
+      );
+      if (!mounted) {
+        return;
+      }
+      widget.onAuthenticated();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Registration failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Sign In'),
+          bottom: const TabBar(tabs: [Tab(text: 'Login'), Tab(text: 'Register')]),
+        ),
+        body: TabBarView(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _loginForm,
+                child: Column(
+                  children: [
+                    _buildRequiredField(
+                      _loginIdentifierController,
+                      'Identifier (Matric or Username)',
+                    ),
+                    _buildRequiredField(
+                      _loginPasswordController,
+                      'Password',
+                      obscure: true,
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: _loading ? null : _login,
+                      child: Text(_loading ? 'Please wait...' : 'Login'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _registerForm,
+                child: ListView(
+                  children: [
+                    _buildRequiredField(_regNameController, 'Full Name'),
+                    if (_role == 'student')
+                      _buildRequiredField(_regMatricController, 'Matric Number'),
+                    if (_role == 'lecturer')
+                      _buildRequiredField(_regUsernameController, 'Username'),
+                    DropdownButtonFormField<String>(
+                      value: _role,
+                      decoration: const InputDecoration(
+                        labelText: 'Role',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'student', child: Text('Student')),
+                        DropdownMenuItem(value: 'lecturer', child: Text('Lecturer')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+                        setState(() {
+                          _role = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _buildRequiredField(
+                      _regPasswordController,
+                      'Password',
+                      obscure: true,
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: _loading ? null : _register,
+                      child: Text(_loading ? 'Please wait...' : 'Register'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -50,7 +297,7 @@ class RoleSelectionScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const StudentShell(),
+                    builder: (_) => StudentShell(onLogout: () async {}),
                   ),
                 );
               },
@@ -62,7 +309,7 @@ class RoleSelectionScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => const LecturerShell(),
+                    builder: (_) => LecturerShell(onLogout: () async {}),
                   ),
                 );
               },
@@ -77,7 +324,9 @@ class RoleSelectionScreen extends StatelessWidget {
 }
 
 class StudentShell extends StatefulWidget {
-  const StudentShell({super.key});
+  const StudentShell({super.key, required this.onLogout});
+
+  final Future<void> Function() onLogout;
 
   @override
   State<StudentShell> createState() => _StudentShellState();
@@ -95,7 +344,16 @@ class _StudentShellState extends State<StudentShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Student')),
+      appBar: AppBar(
+        title: const Text('Student'),
+        actions: [
+          IconButton(
+            onPressed: () => widget.onLogout(),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+          ),
+        ],
+      ),
       body: _pages[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
@@ -118,7 +376,9 @@ class _StudentShellState extends State<StudentShell> {
 }
 
 class LecturerShell extends StatefulWidget {
-  const LecturerShell({super.key});
+  const LecturerShell({super.key, required this.onLogout});
+
+  final Future<void> Function() onLogout;
 
   @override
   State<LecturerShell> createState() => _LecturerShellState();
@@ -136,7 +396,16 @@ class _LecturerShellState extends State<LecturerShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Lecturer')),
+      appBar: AppBar(
+        title: const Text('Lecturer'),
+        actions: [
+          IconButton(
+            onPressed: () => widget.onLogout(),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+          ),
+        ],
+      ),
       body: _pages[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
@@ -785,12 +1054,14 @@ Widget _buildRequiredField(
   String label, {
   bool numeric = false,
   bool readOnly = false,
+  bool obscure = false,
 }) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextFormField(
       controller: controller,
       readOnly: readOnly,
+      obscureText: obscure,
       keyboardType: numeric ? TextInputType.number : TextInputType.text,
       decoration: InputDecoration(
         labelText: label,
