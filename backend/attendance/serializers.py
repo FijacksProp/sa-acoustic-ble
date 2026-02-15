@@ -10,6 +10,10 @@ from .models import AttendanceProof, Session, UserProfile
 
 
 class SessionSerializer(serializers.ModelSerializer):
+    created_by_role = serializers.CharField(source="created_by.role", read_only=True)
+    created_by_username = serializers.CharField(source="created_by.user.username", read_only=True)
+    created_by_matric_number = serializers.CharField(source="created_by.matric_number", read_only=True)
+
     class Meta:
         model = Session
         fields = [
@@ -17,6 +21,9 @@ class SessionSerializer(serializers.ModelSerializer):
             "course_code",
             "course_title",
             "lecturer_name",
+            "created_by_role",
+            "created_by_username",
+            "created_by_matric_number",
             "room",
             "starts_at",
             "ends_at",

@@ -6,6 +6,13 @@ class Session(models.Model):
     course_code = models.CharField(max_length=32)
     course_title = models.CharField(max_length=128, blank=True)
     lecturer_name = models.CharField(max_length=128)
+    created_by = models.ForeignKey(
+        "UserProfile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_sessions",
+    )
     room = models.CharField(max_length=64, blank=True)
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField(null=True, blank=True)
