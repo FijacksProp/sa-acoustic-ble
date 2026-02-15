@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/session_model.dart';
 import 'services/attendance_api_service.dart';
+import 'services/acoustic_scan_service.dart';
+import 'services/ble_scan_service.dart';
 
 void main() {
   runApp(const SaAcousticBleApp());
@@ -172,6 +174,8 @@ class StudentScanPage extends StatefulWidget {
 class _StudentScanPageState extends State<StudentScanPage> {
   final _formKey = GlobalKey<FormState>();
   final _api = AttendanceApiService();
+  final _acoustic = AcousticScanService();
+  final _ble = BleScanService();
   final _sessionIdController = TextEditingController();
   final _studentIdController = TextEditingController();
   final _deviceIdController = TextEditingController();
@@ -181,6 +185,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _signatureController = TextEditingController();
 
   bool _submitting = false;
+  bool _scanning = false;
 
   @override
   void dispose() {
@@ -247,6 +252,40 @@ class _StudentScanPageState extends State<StudentScanPage> {
     }
   }
 
+  Future<void> _runSignalScan() async {
+    setState(() {
+      _scanning = true;
+    });
+    try {
+      final acoustic = await _acoustic.startAcousticScan();
+      final ble = await _ble.scanForNonce();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _acousticTokenController.text = acoustic.acousticToken;
+        _bleNonceController.text = ble.bleNonce ?? '';
+        _rssiController.text = '${ble.rssi ?? -60}';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Signal scan completed.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Signal scan failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -257,18 +296,36 @@ class _StudentScanPageState extends State<StudentScanPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Mock Scan Submit',
+              'Signal Scan Submit',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
             _buildRequiredField(_sessionIdController, 'Session ID', numeric: true),
             _buildRequiredField(_studentIdController, 'Student ID'),
             _buildRequiredField(_deviceIdController, 'Device ID'),
-            _buildRequiredField(_acousticTokenController, 'Acoustic Token'),
-            _buildRequiredField(_bleNonceController, 'BLE Nonce'),
-            _buildRequiredField(_rssiController, 'RSSI', numeric: true),
+            _buildRequiredField(
+              _acousticTokenController,
+              'Acoustic Token',
+              readOnly: true,
+            ),
+            _buildRequiredField(
+              _bleNonceController,
+              'BLE Nonce',
+              readOnly: true,
+            ),
+            _buildRequiredField(
+              _rssiController,
+              'RSSI',
+              numeric: true,
+              readOnly: true,
+            ),
             _buildRequiredField(_signatureController, 'Signature'),
             const SizedBox(height: 16),
+            OutlinedButton(
+              onPressed: _scanning ? null : _runSignalScan,
+              child: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
+            ),
+            const SizedBox(height: 10),
             FilledButton(
               onPressed: _submitting ? null : _submitProof,
               child: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
@@ -727,11 +784,13 @@ Widget _buildRequiredField(
   TextEditingController controller,
   String label, {
   bool numeric = false,
+  bool readOnly = false,
 }) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextFormField(
       controller: controller,
+      readOnly: readOnly,
       keyboardType: numeric ? TextInputType.number : TextInputType.text,
       decoration: InputDecoration(
         labelText: label,

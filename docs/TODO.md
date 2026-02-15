@@ -33,6 +33,10 @@
 - [x] Student History page loads attendance proofs from backend API
 - [x] Loading, empty, and error states added to Live and History pages
 - [x] Backend `/api/attendance/` supports list + create with filters (`session`, `student_id`)
+- [x] Added acoustic platform channel skeleton (Flutter to Android, mock response)
+- [x] Added scan result domain model for sensor output contract
+- [x] Added BLE scan service (real scan + fallback)
+- [x] Student scan flow now fills BLE nonce/RSSI from scan (manual BLE fields removed)
 
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
 - [ ] Implement Android beacon transmitter (FSK ultrasonic)
