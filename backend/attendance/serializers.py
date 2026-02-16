@@ -1,4 +1,5 @@
-from datetime import timedelta
+import re
+from datetime import timedelta, datetime, timezone as dt_timezone
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
@@ -36,6 +37,13 @@ class SessionSerializer(serializers.ModelSerializer):
 
 class AttendanceProofSerializer(serializers.ModelSerializer):
     FRESHNESS_WINDOW_SECONDS = 120
+    SIGNAL_EXPIRY_SECONDS = 60
+    ACOUSTIC_PATTERN = re.compile(
+        r"^ac\|(?P<session>\d+)\|(?P<version>[A-Za-z0-9_.-]+)\|(?P<issued>\d{10})\|(?P<challenge>[A-Za-z0-9_]+)$"
+    )
+    BLE_PATTERN = re.compile(
+        r"^ble\|(?P<session>\d+)\|(?P<issued>\d{10})\|(?P<nonce>[A-Za-z0-9_]+)$"
+    )
 
     class Meta:
         model = AttendanceProof
@@ -68,8 +76,52 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
                 }
             )
 
-        # Application-level duplicate guard for clearer API errors.
         session = attrs["session"]
+        if not session.active:
+            raise serializers.ValidationError(
+                {"session": "Selected session is not active."}
+            )
+        if not session.created_by or session.created_by.role != UserProfile.ROLE_LECTURER:
+            raise serializers.ValidationError(
+                {"session": "Session must belong to an active lecturer owner."}
+            )
+
+        acoustic = attrs["acoustic_token"].strip()
+        ble = attrs["ble_nonce"].strip()
+        acoustic_match = self.ACOUSTIC_PATTERN.match(acoustic)
+        if not acoustic_match:
+            raise serializers.ValidationError(
+                {"acoustic_token": "Invalid acoustic token format."}
+            )
+        ble_match = self.BLE_PATTERN.match(ble)
+        if not ble_match:
+            raise serializers.ValidationError({"ble_nonce": "Invalid BLE nonce format."})
+
+        ac_session = int(acoustic_match.group("session"))
+        ble_session = int(ble_match.group("session"))
+        if ac_session != session.id or ble_session != session.id:
+            raise serializers.ValidationError(
+                {"session": "Payload session_id does not match selected session."}
+            )
+
+        ac_issued = datetime.fromtimestamp(
+            int(acoustic_match.group("issued")), tz=dt_timezone.utc
+        )
+        ble_issued = datetime.fromtimestamp(
+            int(ble_match.group("issued")), tz=dt_timezone.utc
+        )
+        if (now - ac_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
+            now - ac_issued
+        ).total_seconds() < -10:
+            raise serializers.ValidationError(
+                {"acoustic_token": "Acoustic token has expired."}
+            )
+        if (now - ble_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
+            now - ble_issued
+        ).total_seconds() < -10:
+            raise serializers.ValidationError({"ble_nonce": "BLE nonce has expired."})
+
+        # Application-level duplicate guard for clearer API errors.
         student_id = attrs["student_id"].strip()
         if AttendanceProof.objects.filter(session=session, student_id=student_id).exists():
             raise serializers.ValidationError(

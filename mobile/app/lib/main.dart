@@ -13,6 +13,7 @@ import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
 import 'services/auth_service.dart';
 import 'services/lecturer_broadcast_service.dart';
+import 'services/signal_payload_codec.dart';
 
 void main() {
   runApp(const SaAcousticBleApp());
@@ -451,7 +452,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _api = AttendanceApiService();
   final _acoustic = AcousticScanService();
   final _ble = BleScanService();
-  final _sessionIdController = TextEditingController();
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
   final _rssiController = TextEditingController(text: '-60');
@@ -460,6 +460,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
   bool _scanning = false;
   String? _deviceId;
   String? _statusMessage;
+  int? _decodedSessionId;
+  int? _signalAgeSeconds;
+  List<String> _passedChecks = [];
+  List<String> _failedChecks = [];
 
   @override
   void initState() {
@@ -469,7 +473,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
   @override
   void dispose() {
-    _sessionIdController.dispose();
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
     _rssiController.dispose();
@@ -490,13 +493,18 @@ class _StudentScanPageState extends State<StudentScanPage> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-
-    final sessionId = int.tryParse(_sessionIdController.text.trim());
     final rssi = int.tryParse(_rssiController.text.trim());
+    final sessionId = _decodedSessionId;
     if (sessionId == null || rssi == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Session ID and RSSI must be valid numbers.')),
+        const SnackBar(content: Text('Run scan first to decode session and RSSI.')),
       );
+      return;
+    }
+    if (_failedChecks.isNotEmpty) {
+      setState(() {
+        _statusMessage = 'Scan checks failed. Resolve scan issues before submit.';
+      });
       return;
     }
     final studentId = SessionStore.currentIdentity();
@@ -586,6 +594,57 @@ class _StudentScanPageState extends State<StudentScanPage> {
     try {
       final acoustic = await _acoustic.startAcousticScan();
       final ble = await _ble.scanForNonce();
+      final acousticDecoded = SignalPayloadCodec.parseAcousticToken(
+        acoustic.acousticToken,
+      );
+      final bleDecoded = SignalPayloadCodec.parseBleNonce(ble.bleNonce ?? '');
+      final passed = <String>[];
+      final failed = <String>[];
+
+      if (acousticDecoded != null) {
+        passed.add('Acoustic payload parsed');
+      } else {
+        failed.add('Acoustic payload parse failed');
+      }
+      if (bleDecoded != null) {
+        passed.add('BLE payload parsed');
+      } else {
+        failed.add('BLE payload parse failed');
+      }
+
+      final sessionFromAc = acousticDecoded?.sessionId;
+      final sessionFromBle = bleDecoded?.sessionId;
+      int? decodedSession;
+      if (sessionFromAc != null && sessionFromBle != null) {
+        if (sessionFromAc == sessionFromBle) {
+          decodedSession = sessionFromAc;
+          passed.add('Session ID matches across acoustic + BLE');
+        } else {
+          failed.add('Session mismatch between acoustic and BLE');
+        }
+      } else {
+        decodedSession = sessionFromAc ?? sessionFromBle;
+        if (decodedSession != null) {
+          passed.add('Session ID decoded from one signal');
+        } else {
+          failed.add('Session ID not decoded');
+        }
+      }
+
+      final ages = <int>[];
+      if (acousticDecoded != null) {
+        ages.add(SignalPayloadCodec.signalAgeSeconds(acousticDecoded.issuedAt));
+      }
+      if (bleDecoded != null) {
+        ages.add(SignalPayloadCodec.signalAgeSeconds(bleDecoded.issuedAt));
+      }
+      final maxAge = ages.isEmpty ? null : ages.reduce((a, b) => a > b ? a : b);
+      if (maxAge != null && maxAge >= 0 && maxAge <= SignalPayloadCodec.expirySeconds) {
+        passed.add('Signal freshness within ${SignalPayloadCodec.expirySeconds}s');
+      } else {
+        failed.add('Signal freshness failed');
+      }
+
       if (!mounted) {
         return;
       }
@@ -593,9 +652,13 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _acousticTokenController.text = acoustic.acousticToken;
         _bleNonceController.text = ble.bleNonce ?? '';
         _rssiController.text = '${ble.rssi ?? -60}';
+        _decodedSessionId = decodedSession;
+        _signalAgeSeconds = maxAge;
+        _passedChecks = passed;
+        _failedChecks = failed;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signal scan completed.')),
+        const SnackBar(content: Text('Signal scan completed and decoded.')),
       );
     } catch (error) {
       if (!mounted) {
@@ -604,6 +667,12 @@ class _StudentScanPageState extends State<StudentScanPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Signal scan failed: $error')),
       );
+      setState(() {
+        _failedChecks = ['Signal scan execution failed'];
+        _passedChecks = [];
+        _decodedSessionId = null;
+        _signalAgeSeconds = null;
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -627,7 +696,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
-            _buildRequiredField(_sessionIdController, 'Session ID', numeric: true),
+            _InfoRow(
+              label: 'Decoded Session ID',
+              value: _decodedSessionId?.toString() ?? '(run scan to decode)',
+            ),
+            _InfoRow(
+              label: 'Signal Age',
+              value: _signalAgeSeconds == null ? '-' : '$_signalAgeSeconds s',
+            ),
             _InfoRow(
               label: 'Student ID',
               value: SessionStore.currentIdentity().isEmpty
@@ -664,6 +740,15 @@ class _StudentScanPageState extends State<StudentScanPage> {
               onPressed: _submitting ? null : _submitProof,
               child: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
             ),
+            if (_passedChecks.isNotEmpty || _failedChecks.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _ScanResultCard(
+                decodedSessionId: _decodedSessionId,
+                signalAgeSeconds: _signalAgeSeconds,
+                passedChecks: _passedChecks,
+                failedChecks: _failedChecks,
+              ),
+            ],
             if (_statusMessage != null) ...[
               const SizedBox(height: 12),
               Card(
@@ -1213,12 +1298,56 @@ class _BroadcastPayloadCard extends StatelessWidget {
             Text('Acoustic.token_version: ${acoustic.tokenVersion}'),
             Text('Acoustic.challenge_token: ${acoustic.challengeToken}'),
             Text('Acoustic.issued_at: ${acoustic.issuedAt.toIso8601String()}'),
+            Text('Acoustic.encoded: ${snapshot.acousticToken}'),
             const SizedBox(height: 8),
             Text('BLE.session_id: ${ble.sessionId}'),
             Text('BLE.ble_nonce: ${ble.bleNonce}'),
             Text('BLE.issued_at: ${ble.issuedAt.toIso8601String()}'),
+            Text('BLE.encoded: ${snapshot.bleNonce}'),
             const SizedBox(height: 8),
             const Text('Expiry window: 60 seconds'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ScanResultCard extends StatelessWidget {
+  const _ScanResultCard({
+    required this.decodedSessionId,
+    required this.signalAgeSeconds,
+    required this.passedChecks,
+    required this.failedChecks,
+  });
+
+  final int? decodedSessionId;
+  final int? signalAgeSeconds;
+  final List<String> passedChecks;
+  final List<String> failedChecks;
+
+  @override
+  Widget build(BuildContext context) {
+    final passColor = Colors.green.shade700;
+    final failColor = Colors.red.shade700;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Scan Result',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text('Decoded session: ${decodedSessionId ?? '-'}'),
+            Text('Signal age: ${signalAgeSeconds ?? '-'}s'),
+            const SizedBox(height: 8),
+            for (final item in passedChecks)
+              Text('PASS: $item', style: TextStyle(color: passColor)),
+            for (final item in failedChecks)
+              Text('FAIL: $item', style: TextStyle(color: failColor)),
           ],
         ),
       ),

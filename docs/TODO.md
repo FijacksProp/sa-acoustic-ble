@@ -41,6 +41,11 @@
 - [x] Removed manual student_id input; student identity now uses authenticated session
 - [x] Added automatic persistent device ID for proof submission
 - [x] Added automatic proof signature generation (sha256 payload hash)
+- [x] Defined signal payload spec (`docs/signal_payload.md`) with 60s expiry
+- [x] Added lecturer Start Broadcast flow with rotating mock acoustic/BLE payloads
+- [x] Student scan now decodes payload and auto-fills session_id, acoustic_token, ble_nonce, rssi
+- [x] Added scan result card with decoded session, signal age, and pass/fail checks
+- [x] Hardened backend proof validation for payload format, expiry, and session consistency
 
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
 - [ ] Implement Android beacon transmitter (FSK ultrasonic)

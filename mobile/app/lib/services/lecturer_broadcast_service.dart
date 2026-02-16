@@ -2,19 +2,25 @@ import 'dart:async';
 import 'dart:math';
 
 import '../models/signal_payload_model.dart';
+import 'signal_payload_codec.dart';
 
 class BroadcastSnapshot {
   BroadcastSnapshot({
     required this.acousticPayload,
     required this.blePayload,
+    required this.acousticToken,
+    required this.bleNonce,
   });
 
   final AcousticPayload acousticPayload;
   final BlePayload blePayload;
+  final String acousticToken;
+  final String bleNonce;
 }
 
 class LecturerBroadcastService {
   static const int expirySeconds = 60;
+  static BroadcastSnapshot? globalLatest;
 
   final _controller = StreamController<BroadcastSnapshot>.broadcast();
   Timer? _timer;
@@ -73,7 +79,23 @@ class LecturerBroadcastService {
         bleNonce: bleNonce,
         issuedAt: issuedAt,
       ),
+      acousticToken: SignalPayloadCodec.buildAcousticToken(
+        AcousticPayload(
+          sessionId: _sessionId!,
+          tokenVersion: _tokenVersion,
+          challengeToken: challengeToken,
+          issuedAt: issuedAt,
+        ),
+      ),
+      bleNonce: SignalPayloadCodec.buildBleNonce(
+        BlePayload(
+          sessionId: _sessionId!,
+          bleNonce: bleNonce,
+          issuedAt: issuedAt,
+        ),
+      ),
     );
+    globalLatest = _latest;
     _controller.add(_latest!);
   }
 
