@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -6,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'core/session_store.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/session_model.dart';
+import 'models/signal_payload_model.dart';
 import 'services/attendance_api_service.dart';
 import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
 import 'services/auth_service.dart';
+import 'services/lecturer_broadcast_service.dart';
 
 void main() {
   runApp(const SaAcousticBleApp());
@@ -817,6 +820,7 @@ class LecturerSessionPage extends StatefulWidget {
 class _LecturerSessionPageState extends State<LecturerSessionPage> {
   final _formKey = GlobalKey<FormState>();
   final _api = AttendanceApiService();
+  final _broadcast = LecturerBroadcastService();
   final _courseCodeController = TextEditingController();
   final _courseTitleController = TextEditingController();
   final _lecturerNameController = TextEditingController();
@@ -825,9 +829,13 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
 
   bool _submitting = false;
   SessionModel? _lastSession;
+  BroadcastSnapshot? _broadcastSnapshot;
+  StreamSubscription<BroadcastSnapshot>? _broadcastSub;
 
   @override
   void dispose() {
+    _broadcast.dispose();
+    _broadcastSub?.cancel();
     _courseCodeController.dispose();
     _courseTitleController.dispose();
     _lecturerNameController.dispose();
@@ -880,6 +888,37 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     }
   }
 
+  void _startBroadcast() {
+    final sessionId = _lastSession?.id;
+    if (sessionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Create a session before broadcasting.')),
+      );
+      return;
+    }
+    _broadcast.start(
+      sessionId: sessionId,
+      tokenVersion: _tokenVersionController.text.trim(),
+    );
+    _broadcastSub?.cancel();
+    _broadcastSub = _broadcast.stream.listen((snapshot) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _broadcastSnapshot = snapshot;
+      });
+    });
+    setState(() {
+      _broadcastSnapshot = _broadcast.latest;
+    });
+  }
+
+  void _stopBroadcast() {
+    _broadcast.stop();
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -904,6 +943,11 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
               onPressed: _submitting ? null : _createSession,
               child: Text(_submitting ? 'Creating...' : 'Create Session'),
             ),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
+              child: Text(_broadcast.isRunning ? 'Stop Broadcast' : 'Start Broadcast'),
+            ),
             if (_lastSession != null) ...[
               const SizedBox(height: 16),
               Card(
@@ -919,6 +963,10 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
                   ),
                 ),
               ),
+            ],
+            if (_broadcastSnapshot != null) ...[
+              const SizedBox(height: 12),
+              _BroadcastPayloadCard(snapshot: _broadcastSnapshot!),
             ],
           ],
         ),
@@ -1136,6 +1184,43 @@ class _InfoRow extends StatelessWidget {
           border: const OutlineInputBorder(),
         ),
         child: Text(value),
+      ),
+    );
+  }
+}
+
+class _BroadcastPayloadCard extends StatelessWidget {
+  const _BroadcastPayloadCard({required this.snapshot});
+
+  final BroadcastSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final acoustic = snapshot.acousticPayload;
+    final ble = snapshot.blePayload;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Broadcast Payload (Mock)',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text('Acoustic.session_id: ${acoustic.sessionId}'),
+            Text('Acoustic.token_version: ${acoustic.tokenVersion}'),
+            Text('Acoustic.challenge_token: ${acoustic.challengeToken}'),
+            Text('Acoustic.issued_at: ${acoustic.issuedAt.toIso8601String()}'),
+            const SizedBox(height: 8),
+            Text('BLE.session_id: ${ble.sessionId}'),
+            Text('BLE.ble_nonce: ${ble.bleNonce}'),
+            Text('BLE.issued_at: ${ble.issuedAt.toIso8601String()}'),
+            const SizedBox(height: 8),
+            const Text('Expiry window: 60 seconds'),
+          ],
+        ),
       ),
     );
   }
