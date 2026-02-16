@@ -50,10 +50,12 @@ class AuthService {
     final token = payload['token']?.toString() ?? '';
     final role = payload['role']?.toString() ?? '';
     final matric = payload['matric_number']?.toString() ?? '';
+    final username = payload['username']?.toString() ?? '';
     await SessionStore.save(
       tokenValue: token,
       roleValue: role,
       matricValue: matric,
+      usernameValue: username,
     );
   }
 }

@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import 'core/session_store.dart';
@@ -446,26 +449,38 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _acoustic = AcousticScanService();
   final _ble = BleScanService();
   final _sessionIdController = TextEditingController();
-  final _studentIdController = TextEditingController();
-  final _deviceIdController = TextEditingController();
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
   final _rssiController = TextEditingController(text: '-60');
-  final _signatureController = TextEditingController();
 
   bool _submitting = false;
   bool _scanning = false;
+  String? _deviceId;
+  String? _statusMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAutoFields();
+  }
 
   @override
   void dispose() {
     _sessionIdController.dispose();
-    _studentIdController.dispose();
-    _deviceIdController.dispose();
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
     _rssiController.dispose();
-    _signatureController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initAutoFields() async {
+    final id = await SessionStore.ensureDeviceId();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _deviceId = id;
+    });
   }
 
   Future<void> _submitProof() async {
@@ -481,37 +496,56 @@ class _StudentScanPageState extends State<StudentScanPage> {
       );
       return;
     }
+    final studentId = SessionStore.currentIdentity();
+    if (studentId.isEmpty) {
+      setState(() {
+        _statusMessage = 'No authenticated student identity found.';
+      });
+      return;
+    }
+    final deviceId = _deviceId ?? await SessionStore.ensureDeviceId();
+    final observedAt = DateTime.now().toUtc();
+    final signature = _buildSignature(
+      sessionId: sessionId,
+      studentId: studentId,
+      deviceId: deviceId,
+      acousticToken: _acousticTokenController.text.trim(),
+      bleNonce: _bleNonceController.text.trim(),
+      rssi: rssi,
+      observedAt: observedAt,
+    );
 
     setState(() {
       _submitting = true;
+      _statusMessage = null;
     });
 
     try {
       final proof = AttendanceProofModel(
         sessionId: sessionId,
-        studentId: _studentIdController.text.trim(),
-        deviceId: _deviceIdController.text.trim(),
+        studentId: studentId,
+        deviceId: deviceId,
         acousticToken: _acousticTokenController.text.trim(),
         bleNonce: _bleNonceController.text.trim(),
         rssi: rssi,
-        observedAt: DateTime.now(),
-        signature: _signatureController.text.trim(),
+        observedAt: observedAt,
+        signature: signature,
       );
 
       final created = await _api.submitProof(proof);
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Attendance proof submitted (id: ${created.id ?? '-'})')),
-      );
+      setState(() {
+        _statusMessage = 'Attendance proof submitted (id: ${created.id ?? '-'})';
+      });
     } catch (error) {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Submit failed: $error')),
-      );
+      setState(() {
+        _statusMessage = 'Submit failed: $error';
+      });
     } finally {
       if (mounted) {
         setState(() {
@@ -519,6 +553,27 @@ class _StudentScanPageState extends State<StudentScanPage> {
         });
       }
     }
+  }
+
+  String _buildSignature({
+    required int sessionId,
+    required String studentId,
+    required String deviceId,
+    required String acousticToken,
+    required String bleNonce,
+    required int rssi,
+    required DateTime observedAt,
+  }) {
+    final payload = [
+      sessionId,
+      studentId,
+      deviceId,
+      acousticToken,
+      bleNonce,
+      rssi,
+      observedAt.toIso8601String(),
+    ].join('|');
+    return sha256.convert(utf8.encode(payload)).toString();
   }
 
   Future<void> _runSignalScan() async {
@@ -570,8 +625,16 @@ class _StudentScanPageState extends State<StudentScanPage> {
             ),
             const SizedBox(height: 12),
             _buildRequiredField(_sessionIdController, 'Session ID', numeric: true),
-            _buildRequiredField(_studentIdController, 'Student ID'),
-            _buildRequiredField(_deviceIdController, 'Device ID'),
+            _InfoRow(
+              label: 'Student ID',
+              value: SessionStore.currentIdentity().isEmpty
+                  ? '(not available)'
+                  : SessionStore.currentIdentity(),
+            ),
+            _InfoRow(
+              label: 'Device ID',
+              value: _deviceId ?? 'Generating...',
+            ),
             _buildRequiredField(
               _acousticTokenController,
               'Acoustic Token',
@@ -588,7 +651,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
               numeric: true,
               readOnly: true,
             ),
-            _buildRequiredField(_signatureController, 'Signature'),
             const SizedBox(height: 16),
             OutlinedButton(
               onPressed: _scanning ? null : _runSignalScan,
@@ -599,6 +661,15 @@ class _StudentScanPageState extends State<StudentScanPage> {
               onPressed: _submitting ? null : _submitProof,
               child: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
             ),
+            if (_statusMessage != null) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(_statusMessage!),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1044,6 +1115,27 @@ class _EmptyState extends StatelessWidget {
         title,
         style: Theme.of(context).textTheme.bodyLarge,
         textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+        child: Text(value),
       ),
     );
   }

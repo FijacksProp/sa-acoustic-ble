@@ -38,6 +38,9 @@
 - [x] Added BLE scan service (real scan + fallback)
 - [x] Student scan flow now fills BLE nonce/RSSI from scan (manual BLE fields removed)
 - [x] Added role-based registration/login using matric number and auth token
+- [x] Removed manual student_id input; student identity now uses authenticated session
+- [x] Added automatic persistent device ID for proof submission
+- [x] Added automatic proof signature generation (sha256 payload hash)
 
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
 - [ ] Implement Android beacon transmitter (FSK ultrasonic)
