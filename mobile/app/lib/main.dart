@@ -8,6 +8,7 @@ import 'core/session_store.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/session_model.dart';
 import 'models/signal_payload_model.dart';
+import 'models/validation_report_item_model.dart';
 import 'services/attendance_api_service.dart';
 import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
@@ -1160,14 +1161,114 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
   }
 }
 
-class LecturerReportsPage extends StatelessWidget {
+class LecturerReportsPage extends StatefulWidget {
   const LecturerReportsPage({super.key});
 
   @override
+  State<LecturerReportsPage> createState() => _LecturerReportsPageState();
+}
+
+class _LecturerReportsPageState extends State<LecturerReportsPage> {
+  final _api = AttendanceApiService();
+  bool _loading = true;
+  String? _error;
+  List<ValidationReportItemModel> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReport();
+  }
+
+  Future<void> _loadReport() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final report = await _api.getValidationReport();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _items = report;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _PlaceholderPage(
-      title: 'Reports',
-      subtitle: 'Session summaries and export actions will be here.',
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Validation Report', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 10),
+          FilledButton(
+            onPressed: _loadReport,
+            child: const Text('Refresh Report'),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? _ErrorState(message: _error!, onRetry: _loadReport)
+                    : _items.isEmpty
+                        ? const _EmptyState(title: 'No validation report rows yet.')
+                        : ListView.separated(
+                            itemCount: _items.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (_, index) {
+                              final row = _items[index];
+                              final isPass = row.status == 'pass';
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Proof ${row.proofId} | Session ${row.sessionId} | Student ${row.studentId}',
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        isPass ? 'Status: PASS' : 'Status: FAIL',
+                                        style: TextStyle(
+                                          color: isPass ? Colors.green.shade700 : Colors.red.shade700,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Ages: Acoustic ${row.acousticAgeSeconds ?? '-'}s, BLE ${row.bleAgeSeconds ?? '-'}s',
+                                      ),
+                                      for (final p in row.passedChecks)
+                                        Text('PASS: $p', style: TextStyle(color: Colors.green.shade700)),
+                                      for (final f in row.failedChecks)
+                                        Text('FAIL: $f', style: TextStyle(color: Colors.red.shade700)),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+          ),
+        ],
+      ),
     );
   }
 }

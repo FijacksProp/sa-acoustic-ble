@@ -4,12 +4,27 @@ import '../models/scan_result_model.dart';
 import '../models/signal_payload_model.dart';
 import 'lecturer_broadcast_service.dart';
 import 'signal_payload_codec.dart';
+import 'signal_transport_service.dart';
 
 class AcousticScanService {
   static const MethodChannel _channel =
       MethodChannel('sa_acoustic_ble/acoustic');
+  final _transport = SignalTransportService();
 
   Future<ScanResultModel> startAcousticScan() async {
+    final nativeBroadcast = await _transport.getLatestBroadcast();
+    final nativeAcoustic = nativeBroadcast?['acousticToken']?.toString();
+    if (nativeAcoustic != null && nativeAcoustic.isNotEmpty) {
+      final decoded = SignalPayloadCodec.parseAcousticToken(nativeAcoustic);
+      return ScanResultModel(
+        acousticToken: nativeAcoustic,
+        observedAt: DateTime.now().toUtc(),
+        sessionId: decoded?.sessionId,
+        tokenVersion: decoded?.tokenVersion,
+        issuedAt: decoded?.issuedAt,
+      );
+    }
+
     final localBroadcast = LecturerBroadcastService.globalLatest;
     if (localBroadcast != null) {
       final decoded = SignalPayloadCodec.parseAcousticToken(localBroadcast.acousticToken);

@@ -5,11 +5,28 @@ import '../models/scan_result_model.dart';
 import '../models/signal_payload_model.dart';
 import 'lecturer_broadcast_service.dart';
 import 'signal_payload_codec.dart';
+import 'signal_transport_service.dart';
 
 class BleScanService {
+  final _transport = SignalTransportService();
+
   Future<ScanResultModel> scanForNonce({
     Duration timeout = const Duration(seconds: 5),
   }) async {
+    final nativeBroadcast = await _transport.getLatestBroadcast();
+    final nativeBle = nativeBroadcast?['bleNonce']?.toString();
+    if (nativeBle != null && nativeBle.isNotEmpty) {
+      final decoded = SignalPayloadCodec.parseBleNonce(nativeBle);
+      return ScanResultModel(
+        acousticToken: '',
+        observedAt: DateTime.now().toUtc(),
+        bleNonce: nativeBle,
+        rssi: -45,
+        sessionId: decoded?.sessionId,
+        issuedAt: decoded?.issuedAt,
+      );
+    }
+
     final localBroadcast = LecturerBroadcastService.globalLatest;
     if (localBroadcast != null) {
       final decoded = SignalPayloadCodec.parseBleNonce(localBroadcast.bleNonce);

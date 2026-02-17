@@ -3,6 +3,7 @@ import 'dart:math';
 
 import '../models/signal_payload_model.dart';
 import 'signal_payload_codec.dart';
+import 'signal_transport_service.dart';
 
 class BroadcastSnapshot {
   BroadcastSnapshot({
@@ -28,6 +29,7 @@ class LecturerBroadcastService {
   int? _sessionId;
   String _tokenVersion = 'v1';
   bool _running = false;
+  final _transport = SignalTransportService();
 
   Stream<BroadcastSnapshot> get stream => _controller.stream;
   BroadcastSnapshot? get latest => _latest;
@@ -41,10 +43,14 @@ class LecturerBroadcastService {
     _tokenVersion = tokenVersion.trim().isEmpty ? 'v1' : tokenVersion.trim();
     _running = true;
     _emitNewPayload();
+    _startNativeBroadcast();
     _timer?.cancel();
     _timer = Timer.periodic(
       const Duration(seconds: expirySeconds),
-      (_) => _emitNewPayload(),
+      (_) {
+        _emitNewPayload();
+        _startNativeBroadcast();
+      },
     );
   }
 
@@ -52,6 +58,7 @@ class LecturerBroadcastService {
     _timer?.cancel();
     _timer = null;
     _running = false;
+    _transport.stopBroadcast();
   }
 
   void dispose() {
@@ -97,6 +104,17 @@ class LecturerBroadcastService {
     );
     globalLatest = _latest;
     _controller.add(_latest!);
+  }
+
+  void _startNativeBroadcast() {
+    final snapshot = _latest;
+    if (snapshot == null) {
+      return;
+    }
+    _transport.startBroadcast(
+      acousticToken: snapshot.acousticToken,
+      bleNonce: snapshot.bleNonce,
+    );
   }
 
   String _randomToken({required String prefix}) {

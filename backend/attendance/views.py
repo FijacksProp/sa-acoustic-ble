@@ -1,7 +1,11 @@
+import re
+from datetime import datetime, timezone as dt_timezone
+
 from rest_framework import viewsets, generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.views import APIView
 
 from .models import AttendanceProof, Session, UserProfile
 from .serializers import (
@@ -82,3 +86,81 @@ class LoginAPIView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         payload = serializer.save()
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class AttendanceValidationReportAPIView(APIView):
+    ACOUSTIC_PATTERN = re.compile(
+        r"^ac\|(?P<session>\d+)\|(?P<version>[A-Za-z0-9_.-]+)\|(?P<issued>\d{10})\|(?P<challenge>[A-Za-z0-9_]+)$"
+    )
+    BLE_PATTERN = re.compile(
+        r"^ble\|(?P<session>\d+)\|(?P<issued>\d{10})\|(?P<nonce>[A-Za-z0-9_]+)$"
+    )
+    EXPIRY_SECONDS = 60
+
+    def get(self, request):
+        profile = request.user.profile
+        if profile.role != UserProfile.ROLE_LECTURER:
+            raise PermissionDenied("Only lecturers can view validation report.")
+
+        proofs = (
+            AttendanceProof.objects.select_related("session")
+            .filter(session__created_by=profile)
+            .order_by("-created_at")[:100]
+        )
+        items = [self._build_item(proof) for proof in proofs]
+        return Response({"results": items}, status=status.HTTP_200_OK)
+
+    def _build_item(self, proof: AttendanceProof):
+        passed = []
+        failed = []
+        now = datetime.now(dt_timezone.utc)
+
+        am = self.ACOUSTIC_PATTERN.match(proof.acoustic_token.strip())
+        bm = self.BLE_PATTERN.match(proof.ble_nonce.strip())
+        if am:
+            passed.append("Acoustic format")
+        else:
+            failed.append("Acoustic format")
+        if bm:
+            passed.append("BLE format")
+        else:
+            failed.append("BLE format")
+
+        ac_age = None
+        ble_age = None
+        if am:
+            ac_session = int(am.group("session"))
+            ac_issued = datetime.fromtimestamp(int(am.group("issued")), tz=dt_timezone.utc)
+            ac_age = int((now - ac_issued).total_seconds())
+            if ac_session == proof.session_id:
+                passed.append("Acoustic session match")
+            else:
+                failed.append("Acoustic session mismatch")
+            if 0 <= ac_age <= self.EXPIRY_SECONDS:
+                passed.append("Acoustic freshness")
+            else:
+                failed.append("Acoustic freshness")
+        if bm:
+            ble_session = int(bm.group("session"))
+            ble_issued = datetime.fromtimestamp(int(bm.group("issued")), tz=dt_timezone.utc)
+            ble_age = int((now - ble_issued).total_seconds())
+            if ble_session == proof.session_id:
+                passed.append("BLE session match")
+            else:
+                failed.append("BLE session mismatch")
+            if 0 <= ble_age <= self.EXPIRY_SECONDS:
+                passed.append("BLE freshness")
+            else:
+                failed.append("BLE freshness")
+
+        return {
+            "proof_id": proof.id,
+            "session_id": proof.session_id,
+            "student_id": proof.student_id,
+            "observed_at": proof.observed_at,
+            "acoustic_age_seconds": ac_age,
+            "ble_age_seconds": ble_age,
+            "passed_checks": passed,
+            "failed_checks": failed,
+            "status": "pass" if not failed else "fail",
+        }

@@ -1,6 +1,7 @@
 import '../core/api_client.dart';
 import '../models/attendance_proof_model.dart';
 import '../models/session_model.dart';
+import '../models/validation_report_item_model.dart';
 
 class AttendanceApiService {
   AttendanceApiService({ApiClient? client}) : _client = client ?? ApiClient();
@@ -44,6 +45,14 @@ class AttendanceApiService {
     return list
         .cast<Map<String, dynamic>>()
         .map(AttendanceProofModel.fromJson)
+        .toList();
+  }
+
+  Future<List<ValidationReportItemModel>> getValidationReport() async {
+    final list = await _client.getList('/api/attendance/report/');
+    return list
+        .cast<Map<String, dynamic>>()
+        .map(ValidationReportItemModel.fromJson)
         .toList();
   }
 }

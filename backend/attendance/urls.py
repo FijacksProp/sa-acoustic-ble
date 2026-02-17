@@ -6,6 +6,7 @@ from .views import (
     SessionViewSet,
     RegisterAPIView,
     LoginAPIView,
+    AttendanceValidationReportAPIView,
 )
 
 
@@ -15,6 +16,7 @@ router.register("sessions", SessionViewSet, basename="session")
 urlpatterns = [
     path("", include(router.urls)),
     path("attendance/", AttendanceProofListCreateAPIView.as_view(), name="attendance-list-create"),
+    path("attendance/report/", AttendanceValidationReportAPIView.as_view(), name="attendance-validation-report"),
     path("auth/register/", RegisterAPIView.as_view(), name="auth-register"),
     path("auth/login/", LoginAPIView.as_view(), name="auth-login"),
 ]

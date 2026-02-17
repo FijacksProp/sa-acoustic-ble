@@ -60,3 +60,17 @@ class UserProfile(models.Model):
 
     def __str__(self) -> str:
         return f"{self.matric_number} ({self.role})"
+
+
+class AttendanceReplayGuard(models.Model):
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="replay_guards")
+    challenge_token = models.CharField(max_length=128)
+    ble_nonce = models.CharField(max_length=128)
+    student_id = models.CharField(max_length=64)
+    used_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("session", "challenge_token", "ble_nonce")
+
+    def __str__(self) -> str:
+        return f"{self.session_id}:{self.challenge_token}:{self.ble_nonce}"

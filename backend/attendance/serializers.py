@@ -6,8 +6,9 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework import serializers
+from django.db import IntegrityError
 
-from .models import AttendanceProof, Session, UserProfile
+from .models import AttendanceProof, Session, UserProfile, AttendanceReplayGuard
 
 
 class SessionSerializer(serializers.ModelSerializer):
@@ -121,6 +122,19 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         ).total_seconds() < -10:
             raise serializers.ValidationError({"ble_nonce": "BLE nonce has expired."})
 
+        challenge_token = acoustic_match.group("challenge")
+        ble_nonce_value = ble_match.group("nonce")
+        attrs["_decoded_challenge_token"] = challenge_token
+        attrs["_decoded_ble_nonce"] = ble_nonce_value
+        if AttendanceReplayGuard.objects.filter(
+            session=session,
+            challenge_token=challenge_token,
+            ble_nonce=ble_nonce_value,
+        ).exists():
+            raise serializers.ValidationError(
+                {"ble_nonce": "Replay detected: challenge/nonce already used."}
+            )
+
         # Application-level duplicate guard for clearer API errors.
         student_id = attrs["student_id"].strip()
         if AttendanceProof.objects.filter(session=session, student_id=student_id).exists():
@@ -134,6 +148,23 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         attrs["ble_nonce"] = attrs["ble_nonce"].strip()
         attrs["signature"] = attrs["signature"].strip()
         return attrs
+
+    def create(self, validated_data):
+        challenge_token = validated_data.pop("_decoded_challenge_token", None)
+        ble_nonce_value = validated_data.pop("_decoded_ble_nonce", None)
+        proof = super().create(validated_data)
+        try:
+            AttendanceReplayGuard.objects.create(
+                session=proof.session,
+                challenge_token=challenge_token or "",
+                ble_nonce=ble_nonce_value or "",
+                student_id=proof.student_id,
+            )
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"ble_nonce": "Replay detected: challenge/nonce already used."}
+            )
+        return proof
 
     def validate_student_id(self, value):
         cleaned = value.strip()

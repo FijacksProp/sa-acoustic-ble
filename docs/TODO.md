@@ -46,6 +46,9 @@
 - [x] Student scan now decodes payload and auto-fills session_id, acoustic_token, ble_nonce, rssi
 - [x] Added scan result card with decoded session, signal age, and pass/fail checks
 - [x] Hardened backend proof validation for payload format, expiry, and session consistency
+- [x] Added replay protection storage and challenge/nonce reuse rejection
+- [x] Added lecturer validation report API and report panel in app
+- [x] Added Android method-channel broadcast transport (start/stop/get latest payload)
 
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
 - [ ] Implement Android beacon transmitter (FSK ultrasonic)
