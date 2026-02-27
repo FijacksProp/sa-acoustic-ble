@@ -1,20 +1,23 @@
 package com.fijacks.saacousticble
 
-import android.media.AudioFormat
-import android.media.AudioManager
-import android.media.AudioTrack
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.fijacks.saacousticble.acoustic.AcousticTransmitter
+import com.fijacks.saacousticble.acoustic.AcousticFrameDecoder
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
-import kotlin.math.PI
-import kotlin.math.sin
 
 class MainActivity : FlutterActivity() {
     private val channelName = "sa_acoustic_ble/acoustic"
+    private val requestAudioPermissionCode = 1203
     private var latestAcousticToken: String? = null
     private var latestBleNonce: String? = null
-    private var audioTrack: AudioTrack? = null
+    private val acousticTransmitter = AcousticTransmitter()
+    private val acousticFrameDecoder by lazy { AcousticFrameDecoder(this) }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,11 +29,13 @@ class MainActivity : FlutterActivity() {
                         val bleNonce = call.argument<String>("bleNonce")
                         latestAcousticToken = acousticToken
                         latestBleNonce = bleNonce
-                        startUltrasonicCarrier()
+                        if (!acousticToken.isNullOrBlank()) {
+                            acousticTransmitter.start(acousticToken)
+                        }
                         result.success(null)
                     }
                     "stopBroadcast" -> {
-                        stopUltrasonicCarrier()
+                        acousticTransmitter.stop()
                         latestAcousticToken = null
                         latestBleNonce = null
                         result.success(null)
@@ -43,9 +48,23 @@ class MainActivity : FlutterActivity() {
                         result.success(payload)
                     }
                     "startAcousticScan" -> {
+                        if (!hasRecordAudioPermission()) {
+                            requestRecordAudioPermission()
+                            result.error(
+                                "MIC_PERMISSION_REQUIRED",
+                                "Microphone permission is required for acoustic scan.",
+                                null
+                            )
+                            return@setMethodCallHandler
+                        }
+                        val decodedToken = acousticFrameDecoder.decodeFromMic()
                         val now = Instant.now().toString()
                         val payload = mapOf(
-                            "acousticToken" to (latestAcousticToken ?: "android_mock_ac_${System.currentTimeMillis()}"),
+                            "acousticToken" to (
+                                decodedToken
+                                    ?: latestAcousticToken
+                                    ?: "android_mock_ac_${System.currentTimeMillis()}"
+                                ),
                             "bleNonce" to latestBleNonce,
                             "observedAt" to now
                         )
@@ -57,48 +76,22 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        stopUltrasonicCarrier()
+        acousticTransmitter.stop()
         super.onDestroy()
     }
 
-    private fun startUltrasonicCarrier() {
-        stopUltrasonicCarrier()
-        val sampleRate = 44100
-        val frequency = 19000.0
-        val durationSeconds = 1
-        val count = sampleRate * durationSeconds
-        val data = ShortArray(count)
-        for (i in 0 until count) {
-            val angle = 2.0 * PI * i * frequency / sampleRate
-            data[i] = (sin(angle) * Short.MAX_VALUE * 0.15).toInt().toShort()
-        }
-        val minSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        audioTrack = AudioTrack(
-            AudioManager.STREAM_MUSIC,
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minSize, data.size * 2),
-            AudioTrack.MODE_STATIC
-        ).apply {
-            write(data, 0, data.size)
-            setLoopPoints(0, data.size, -1)
-            play()
-        }
+    private fun hasRecordAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun stopUltrasonicCarrier() {
-        audioTrack?.apply {
-            try {
-                stop()
-            } catch (_: Exception) {
-            }
-            release()
-        }
-        audioTrack = null
+    private fun requestRecordAudioPermission() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            requestAudioPermissionCode
+        )
     }
 }

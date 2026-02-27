@@ -51,10 +51,10 @@
 - [x] Added Android method-channel broadcast transport (start/stop/get latest payload)
 
 ## Phase 2 - Acoustic Beacon (Weeks 3-4)
-- [ ] Implement Android beacon transmitter (FSK ultrasonic)
-- [ ] Implement Android beacon decoder
+- [x] Implement Android beacon transmitter (FSK ultrasonic)
+- [x] Implement Android beacon decoder
 - [ ] Add bandpass filter for 18-20 kHz
-- [ ] Decode rotating token and timestamp
+- [x] Decode rotating token and timestamp
 - [ ] Basic UI: start session, show token
 - [ ] Field test with Bluetooth speaker
 - [ ] Log decode success vs distance
