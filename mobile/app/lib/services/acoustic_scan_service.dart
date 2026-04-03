@@ -1,39 +1,34 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/scan_result_model.dart';
-import '../models/signal_payload_model.dart';
 import 'lecturer_broadcast_service.dart';
 import 'signal_payload_codec.dart';
-import 'signal_transport_service.dart';
 
 class AcousticScanService {
   static const MethodChannel _channel =
       MethodChannel('sa_acoustic_ble/acoustic');
-  final _transport = SignalTransportService();
 
   Future<ScanResultModel> startAcousticScan() async {
-    final nativeBroadcast = await _transport.getLatestBroadcast();
-    final nativeAcoustic = nativeBroadcast?['acousticToken']?.toString();
-    if (nativeAcoustic != null && nativeAcoustic.isNotEmpty) {
-      final decoded = SignalPayloadCodec.parseAcousticToken(nativeAcoustic);
+    if (kIsWeb) {
+      final localBroadcast = LecturerBroadcastService.globalLatest;
+      if (localBroadcast != null) {
+        final decoded = SignalPayloadCodec.parseAcousticToken(localBroadcast.acousticToken);
+        return ScanResultModel(
+          acousticToken: localBroadcast.acousticToken,
+          observedAt: DateTime.now().toUtc(),
+          sessionId: decoded?.sessionId,
+          tokenVersion: decoded?.tokenVersion,
+          issuedAt: decoded?.issuedAt,
+          source: 'web_broadcast_cache',
+          diagnostic: 'Using in-memory lecturer broadcast for web/demo mode.',
+        );
+      }
       return ScanResultModel(
-        acousticToken: nativeAcoustic,
+        acousticToken: '',
         observedAt: DateTime.now().toUtc(),
-        sessionId: decoded?.sessionId,
-        tokenVersion: decoded?.tokenVersion,
-        issuedAt: decoded?.issuedAt,
-      );
-    }
-
-    final localBroadcast = LecturerBroadcastService.globalLatest;
-    if (localBroadcast != null) {
-      final decoded = SignalPayloadCodec.parseAcousticToken(localBroadcast.acousticToken);
-      return ScanResultModel(
-        acousticToken: localBroadcast.acousticToken,
-        observedAt: DateTime.now().toUtc(),
-        sessionId: decoded?.sessionId,
-        tokenVersion: decoded?.tokenVersion,
-        issuedAt: decoded?.issuedAt,
+        source: 'web_no_broadcast',
+        diagnostic: 'No in-memory lecturer broadcast is available in web mode.',
       );
     }
 
@@ -42,44 +37,38 @@ class AcousticScanService {
         'startAcousticScan',
       );
       if (result == null) {
-        return _fallback();
+        return ScanResultModel(
+          acousticToken: '',
+          observedAt: DateTime.now().toUtc(),
+          source: 'native_no_result',
+          diagnostic: 'Native acoustic scan returned no result.',
+        );
       }
       final base = ScanResultModel.fromMap(result);
       final decoded = SignalPayloadCodec.parseAcousticToken(base.acousticToken);
-      if (decoded == null) {
-        return _fallback();
-      }
       return ScanResultModel(
         acousticToken: base.acousticToken,
         observedAt: base.observedAt,
-        sessionId: decoded?.sessionId,
-        tokenVersion: decoded?.tokenVersion,
-        issuedAt: decoded?.issuedAt,
+        sessionId: decoded?.sessionId ?? base.sessionId,
+        tokenVersion: decoded?.tokenVersion ?? base.tokenVersion,
+        issuedAt: decoded?.issuedAt ?? base.issuedAt,
+        source: base.source ?? (decoded != null ? 'native_decode' : 'native_no_decode'),
+        diagnostic: base.diagnostic,
       );
     } on PlatformException {
-      return _fallback();
+      return ScanResultModel(
+        acousticToken: '',
+        observedAt: DateTime.now().toUtc(),
+        source: 'platform_exception',
+        diagnostic: 'Native acoustic platform call failed.',
+      );
     } on MissingPluginException {
-      return _fallback();
+      return ScanResultModel(
+        acousticToken: '',
+        observedAt: DateTime.now().toUtc(),
+        source: 'missing_plugin',
+        diagnostic: 'Acoustic native plugin is unavailable on this target.',
+      );
     }
-  }
-
-  ScanResultModel _fallback() {
-    final now = DateTime.now().toUtc();
-    final mockPayload = SignalPayloadCodec.buildAcousticToken(
-      AcousticPayload(
-        sessionId: 1,
-        tokenVersion: 'v1',
-        challengeToken: 'fallback',
-        issuedAt: now,
-      ),
-    );
-    final decoded = SignalPayloadCodec.parseAcousticToken(mockPayload);
-    return ScanResultModel(
-      acousticToken: mockPayload,
-      observedAt: now,
-      sessionId: decoded?.sessionId,
-      tokenVersion: decoded?.tokenVersion,
-      issuedAt: decoded?.issuedAt,
-    );
   }
 }

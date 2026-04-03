@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import 'core/session_store.dart';
 import 'models/attendance_proof_model.dart';
+import 'models/scan_test_log_model.dart';
 import 'models/session_model.dart';
 import 'models/signal_payload_model.dart';
 import 'models/validation_report_item_model.dart';
@@ -14,6 +15,7 @@ import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
 import 'services/auth_service.dart';
 import 'services/lecturer_broadcast_service.dart';
+import 'services/scan_test_log_service.dart';
 import 'services/signal_payload_codec.dart';
 
 void main() {
@@ -453,18 +455,23 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _api = AttendanceApiService();
   final _acoustic = AcousticScanService();
   final _ble = BleScanService();
+  final _scanLogService = ScanTestLogService();
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
   final _rssiController = TextEditingController(text: '-60');
+  final _distanceController = TextEditingController();
+  final _environmentController = TextEditingController();
 
   bool _submitting = false;
   bool _scanning = false;
+  bool _clearingLogs = false;
   String? _deviceId;
   String? _statusMessage;
   int? _decodedSessionId;
   int? _signalAgeSeconds;
   List<String> _passedChecks = [];
   List<String> _failedChecks = [];
+  List<ScanTestLogModel> _scanLogs = [];
 
   @override
   void initState() {
@@ -477,16 +484,34 @@ class _StudentScanPageState extends State<StudentScanPage> {
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
     _rssiController.dispose();
+    _distanceController.dispose();
+    _environmentController.dispose();
     super.dispose();
   }
 
   Future<void> _initAutoFields() async {
     final id = await SessionStore.ensureDeviceId();
+    final logs = await _scanLogService.loadLogs();
     if (!mounted) {
       return;
     }
     setState(() {
       _deviceId = id;
+      _scanLogs = logs;
+    });
+  }
+
+  Future<void> _clearScanLogs() async {
+    setState(() {
+      _clearingLogs = true;
+    });
+    await _scanLogService.clearLogs();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _scanLogs = [];
+      _clearingLogs = false;
     });
   }
 
@@ -588,9 +613,30 @@ class _StudentScanPageState extends State<StudentScanPage> {
     return sha256.convert(utf8.encode(payload)).toString();
   }
 
+  String _buildTrustSummary({
+    required ScanResultModel acoustic,
+    required ScanResultModel ble,
+    required List<String> failedChecks,
+  }) {
+    final acousticTrusted = acoustic.source == 'microphone_decode';
+    final bleTrusted = ble.source == 'ble_scan_token';
+
+    if (acousticTrusted && bleTrusted && failedChecks.isEmpty) {
+      return 'Trusted dual-signal scan';
+    }
+    if (acousticTrusted && !bleTrusted) {
+      return 'Acoustic evidence is real, BLE evidence is still weak or incomplete';
+    }
+    if (!acousticTrusted && bleTrusted) {
+      return 'BLE evidence is real, but acoustic decode did not complete cleanly';
+    }
+    return 'Untrusted scan: at least one required signal was not captured convincingly';
+  }
+
   Future<void> _runSignalScan() async {
     setState(() {
       _scanning = true;
+      _statusMessage = null;
     });
     try {
       final acoustic = await _acoustic.startAcousticScan();
@@ -607,10 +653,30 @@ class _StudentScanPageState extends State<StudentScanPage> {
       } else {
         failed.add('Acoustic payload parse failed');
       }
+      if (acoustic.source == 'microphone_decode' || acoustic.source == 'web_broadcast_cache') {
+        passed.add('Acoustic source: ${acoustic.source}');
+      } else {
+        failed.add('Acoustic source: ${acoustic.source ?? 'unknown'}');
+      }
+      if (acousticDecoded != null && acoustic.source == 'microphone_decode') {
+        passed.add('Acoustic evidence came from live microphone decode');
+      } else {
+        failed.add('Acoustic evidence was not confirmed from live microphone decode');
+      }
       if (bleDecoded != null) {
         passed.add('BLE payload parsed');
       } else {
         failed.add('BLE payload parse failed');
+      }
+      if (ble.source == 'ble_scan_token' || ble.source == 'web_broadcast_cache') {
+        passed.add('BLE source: ${ble.source}');
+      } else {
+        failed.add('BLE source: ${ble.source ?? 'unknown'}');
+      }
+      if (bleDecoded != null && ble.source == 'ble_scan_token') {
+        passed.add('BLE evidence came from a real parsed advertisement');
+      } else {
+        failed.add('BLE evidence was not confirmed from a real lecturer advertisement');
       }
 
       final sessionFromAc = acousticDecoded?.sessionId;
@@ -649,6 +715,28 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (!mounted) {
         return;
       }
+      final trustSummary = _buildTrustSummary(
+        acoustic: acoustic,
+        ble: ble,
+        failedChecks: failed,
+      );
+      final savedLogs = await _scanLogService.addLog(
+        ScanTestLogModel(
+          recordedAt: DateTime.now().toUtc(),
+          trustSummary: trustSummary,
+          acousticSource: acoustic.source ?? 'unknown',
+          bleSource: ble.source ?? 'unknown',
+          acousticDiagnostic: acoustic.diagnostic ?? '',
+          bleDiagnostic: ble.diagnostic ?? '',
+          decodedSessionId: decodedSession,
+          signalAgeSeconds: maxAge,
+          rssi: ble.rssi,
+          passedChecks: passed,
+          failedChecks: failed,
+          distanceMeters: _distanceController.text.trim(),
+          environmentNotes: _environmentController.text.trim(),
+        ),
+      );
       setState(() {
         _acousticTokenController.text = acoustic.acousticToken;
         _bleNonceController.text = ble.bleNonce ?? '';
@@ -657,9 +745,22 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _signalAgeSeconds = maxAge;
         _passedChecks = passed;
         _failedChecks = failed;
+        _scanLogs = savedLogs;
+        _statusMessage = [
+          trustSummary,
+          if ((acoustic.diagnostic ?? '').isNotEmpty)
+            'Acoustic: ${acoustic.diagnostic}',
+          if ((ble.diagnostic ?? '').isNotEmpty) 'BLE: ${ble.diagnostic}',
+        ].join('\n');
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Signal scan completed and decoded.')),
+        SnackBar(
+          content: Text(
+            failed.isEmpty
+                ? 'Signal scan completed successfully.'
+                : 'Signal scan completed with issues.',
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) {
@@ -673,6 +774,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _passedChecks = [];
         _decodedSessionId = null;
         _signalAgeSeconds = null;
+        _statusMessage = 'Signal scan execution failed: $error';
       });
     } finally {
       if (mounted) {
@@ -732,6 +834,22 @@ class _StudentScanPageState extends State<StudentScanPage> {
               readOnly: true,
             ),
             const SizedBox(height: 16),
+            Text(
+              'Field Test Context',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 10),
+            _buildRequiredField(
+              _distanceController,
+              'Distance (m, optional)',
+              required: false,
+            ),
+            _buildRequiredField(
+              _environmentController,
+              'Noise / Notes (optional)',
+              required: false,
+            ),
+            const SizedBox(height: 6),
             OutlinedButton(
               onPressed: _scanning ? null : _runSignalScan,
               child: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
@@ -759,6 +877,34 @@ class _StudentScanPageState extends State<StudentScanPage> {
                 ),
               ),
             ],
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Recent Field-Test Logs',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                TextButton(
+                  onPressed: (_clearingLogs || _scanLogs.isEmpty)
+                      ? null
+                      : _clearScanLogs,
+                  child: Text(_clearingLogs ? 'Clearing...' : 'Clear Logs'),
+                ),
+              ],
+            ),
+            if (_scanLogs.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'No scan logs yet. Run phone tests to build a local history of outcomes.',
+                  ),
+                ),
+              )
+            else
+              ..._scanLogs.map((log) => _ScanTestLogCard(log: log)),
           ],
         ),
       ),
@@ -1462,6 +1608,7 @@ Widget _buildRequiredField(
   bool numeric = false,
   bool readOnly = false,
   bool obscure = false,
+  bool required = true,
 }) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 10),
@@ -1475,11 +1622,59 @@ Widget _buildRequiredField(
         border: const OutlineInputBorder(),
       ),
       validator: (value) {
-        if (value == null || value.trim().isEmpty) {
+        if (required && (value == null || value.trim().isEmpty)) {
           return '$label is required';
         }
         return null;
       },
     ),
   );
+}
+
+class _ScanTestLogCard extends StatelessWidget {
+  const _ScanTestLogCard({required this.log});
+
+  final ScanTestLogModel log;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = log.isSuccessful ? Colors.green.shade700 : Colors.red.shade700;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              log.isSuccessful ? 'PASS' : 'ISSUES FOUND',
+              style: TextStyle(
+                color: statusColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            if (log.trustSummary.isNotEmpty) Text('Trust: ${log.trustSummary}'),
+            Text('Time: ${log.recordedAt.toLocal()}'),
+            Text('Session: ${log.decodedSessionId ?? '-'} | Age: ${log.signalAgeSeconds ?? '-'}s | RSSI: ${log.rssi ?? '-'}'),
+            Text('Acoustic source: ${log.acousticSource}'),
+            Text('BLE source: ${log.bleSource}'),
+            if (log.distanceMeters.isNotEmpty) Text('Distance: ${log.distanceMeters} m'),
+            if (log.environmentNotes.isNotEmpty) Text('Notes: ${log.environmentNotes}'),
+            if (log.acousticDiagnostic.isNotEmpty) Text('Acoustic diag: ${log.acousticDiagnostic}'),
+            if (log.bleDiagnostic.isNotEmpty) Text('BLE diag: ${log.bleDiagnostic}'),
+            if (log.failedChecks.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              for (final item in log.failedChecks)
+                Text('FAIL: $item', style: TextStyle(color: Colors.red.shade700)),
+            ],
+            if (log.passedChecks.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              for (final item in log.passedChecks.take(4))
+                Text('PASS: $item', style: TextStyle(color: Colors.green.shade700)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }

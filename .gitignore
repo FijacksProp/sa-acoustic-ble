@@ -26,3 +26,7 @@ node_modules/
 # IDE
 .vscode/
 .idea/
+
+# docs
+docs/NEW_PC_SETUP_GUIDE.md
+docs/PROJECT_HANDOFF_NEW_PC.md

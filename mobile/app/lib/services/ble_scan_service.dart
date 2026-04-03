@@ -5,43 +5,32 @@ import '../models/scan_result_model.dart';
 import '../models/signal_payload_model.dart';
 import 'lecturer_broadcast_service.dart';
 import 'signal_payload_codec.dart';
-import 'signal_transport_service.dart';
 
 class BleScanService {
-  final _transport = SignalTransportService();
-
   Future<ScanResultModel> scanForNonce({
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    final nativeBroadcast = await _transport.getLatestBroadcast();
-    final nativeBle = nativeBroadcast?['bleNonce']?.toString();
-    if (nativeBle != null && nativeBle.isNotEmpty) {
-      final decoded = SignalPayloadCodec.parseBleNonce(nativeBle);
-      return ScanResultModel(
-        acousticToken: '',
-        observedAt: DateTime.now().toUtc(),
-        bleNonce: nativeBle,
-        rssi: -45,
-        sessionId: decoded?.sessionId,
-        issuedAt: decoded?.issuedAt,
-      );
-    }
-
-    final localBroadcast = LecturerBroadcastService.globalLatest;
-    if (localBroadcast != null) {
-      final decoded = SignalPayloadCodec.parseBleNonce(localBroadcast.bleNonce);
-      return ScanResultModel(
-        acousticToken: '',
-        observedAt: DateTime.now().toUtc(),
-        bleNonce: localBroadcast.bleNonce,
-        rssi: -45,
-        sessionId: decoded?.sessionId,
-        issuedAt: decoded?.issuedAt,
-      );
-    }
-
     if (kIsWeb) {
-      return _fallback();
+      final localBroadcast = LecturerBroadcastService.globalLatest;
+      if (localBroadcast != null) {
+        final decoded = SignalPayloadCodec.parseBleNonce(localBroadcast.bleNonce);
+        return ScanResultModel(
+          acousticToken: '',
+          observedAt: DateTime.now().toUtc(),
+          bleNonce: localBroadcast.bleNonce,
+          rssi: -45,
+          sessionId: decoded?.sessionId,
+          issuedAt: decoded?.issuedAt,
+          source: 'web_broadcast_cache',
+          diagnostic: 'Using in-memory lecturer BLE payload for web/demo mode.',
+        );
+      }
+      return ScanResultModel(
+        acousticToken: '',
+        observedAt: DateTime.now().toUtc(),
+        source: 'web_no_ble',
+        diagnostic: 'Web mode has no real BLE scan path and no local broadcast cache.',
+      );
     }
 
     try {
@@ -52,52 +41,50 @@ class BleScanService {
       await FlutterBluePlus.stopScan();
 
       if (results.isEmpty) {
-        return _fallback();
+        return ScanResultModel(
+          acousticToken: '',
+          observedAt: DateTime.now().toUtc(),
+          source: 'ble_scan_empty',
+          diagnostic: 'BLE scan completed but no nearby devices were returned.',
+        );
       }
 
       results.sort((a, b) => b.rssi.compareTo(a.rssi));
       final strongest = results.first;
-      final deviceId = strongest.device.remoteId.str;
       final now = DateTime.now().toUtc();
-      final encoded = SignalPayloadCodec.buildBleNonce(
-        BlePayload(
-          sessionId: 1,
-          bleNonce: 'dev_$deviceId',
-          issuedAt: now,
-        ),
-      );
-      final decoded = SignalPayloadCodec.parseBleNonce(encoded);
+      final advertisedName = strongest.advertisementData.advName.trim();
+      final manufacturerData = strongest.advertisementData.manufacturerData;
+      final serviceData = strongest.advertisementData.serviceData;
+      BlePayload? decodedPayload;
+      String? decodedNonce;
+
+      if (advertisedName.isNotEmpty) {
+        final parsed = SignalPayloadCodec.parseBleNonce(advertisedName);
+        if (parsed != null) {
+          decodedNonce = advertisedName;
+          decodedPayload = parsed;
+        }
+      }
 
       return ScanResultModel(
         acousticToken: '',
         observedAt: now,
-        bleNonce: encoded,
+        bleNonce: decodedNonce,
         rssi: strongest.rssi,
-        sessionId: decoded?.sessionId,
-        issuedAt: decoded?.issuedAt,
+        sessionId: decodedPayload?.sessionId,
+        issuedAt: decodedPayload?.issuedAt,
+        source: decodedNonce != null ? 'ble_scan_token' : 'ble_scan_unparsed_device',
+        diagnostic: decodedNonce != null
+            ? 'BLE payload parsed from advertisement name.'
+            : 'Scanned device ${strongest.device.remoteId.str} (name: ${advertisedName.isEmpty ? '-' : advertisedName}, manufacturerData: ${manufacturerData.length}, serviceData: ${serviceData.length}) but no real lecturer nonce was parsed.',
       );
     } catch (_) {
-      return _fallback();
+      return ScanResultModel(
+        acousticToken: '',
+        observedAt: DateTime.now().toUtc(),
+        source: 'ble_scan_error',
+        diagnostic: 'BLE scan failed before a lecturer nonce could be parsed.',
+      );
     }
-  }
-
-  ScanResultModel _fallback() {
-    final now = DateTime.now().toUtc();
-    final encoded = SignalPayloadCodec.buildBleNonce(
-      BlePayload(
-        sessionId: 1,
-        bleNonce: 'fallback',
-        issuedAt: now,
-      ),
-    );
-    final decoded = SignalPayloadCodec.parseBleNonce(encoded);
-    return ScanResultModel(
-      acousticToken: '',
-      observedAt: now,
-      bleNonce: encoded,
-      rssi: -60,
-      sessionId: decoded?.sessionId,
-      issuedAt: decoded?.issuedAt,
-    );
   }
 }

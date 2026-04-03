@@ -7,6 +7,8 @@ class ScanResultModel {
     this.sessionId,
     this.tokenVersion,
     this.issuedAt,
+    this.source,
+    this.diagnostic,
   });
 
   final String acousticToken;
@@ -16,6 +18,8 @@ class ScanResultModel {
   final int? sessionId;
   final String? tokenVersion;
   final DateTime? issuedAt;
+  final String? source;
+  final String? diagnostic;
 
   factory ScanResultModel.fromMap(Map<Object?, Object?> map) {
     final observed = map['observedAt']?.toString();
@@ -33,6 +37,8 @@ class ScanResultModel {
       issuedAt: map['issuedAt'] == null
           ? null
           : DateTime.tryParse(map['issuedAt'].toString())?.toUtc(),
+      source: map['source']?.toString(),
+      diagnostic: map['diagnostic']?.toString(),
     );
   }
 }

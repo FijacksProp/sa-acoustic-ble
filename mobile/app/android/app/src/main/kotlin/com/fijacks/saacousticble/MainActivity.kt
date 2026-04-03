@@ -2,6 +2,7 @@ package com.fijacks.saacousticble
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.fijacks.saacousticble.acoustic.AcousticTransmitter
@@ -13,6 +14,7 @@ import java.time.Instant
 
 class MainActivity : FlutterActivity() {
     private val channelName = "sa_acoustic_ble/acoustic"
+    private val logTag = "SaAcousticBle"
     private val requestAudioPermissionCode = 1203
     private var latestAcousticToken: String? = null
     private var latestBleNonce: String? = null
@@ -29,6 +31,10 @@ class MainActivity : FlutterActivity() {
                         val bleNonce = call.argument<String>("bleNonce")
                         latestAcousticToken = acousticToken
                         latestBleNonce = bleNonce
+                        Log.i(
+                            logTag,
+                            "startBroadcast sessionPayload acoustic=${!acousticToken.isNullOrBlank()} ble=${!bleNonce.isNullOrBlank()}"
+                        )
                         if (!acousticToken.isNullOrBlank()) {
                             acousticTransmitter.start(acousticToken)
                         }
@@ -49,6 +55,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "startAcousticScan" -> {
                         if (!hasRecordAudioPermission()) {
+                            Log.w(logTag, "startAcousticScan blocked: microphone permission missing")
                             requestRecordAudioPermission()
                             result.error(
                                 "MIC_PERMISSION_REQUIRED",
@@ -59,14 +66,23 @@ class MainActivity : FlutterActivity() {
                         }
                         val decodedToken = acousticFrameDecoder.decodeFromMic()
                         val now = Instant.now().toString()
+                        val source = if (!decodedToken.isNullOrBlank()) {
+                            "microphone_decode"
+                        } else {
+                            "microphone_no_decode"
+                        }
+                        val diagnostic = acousticFrameDecoder.lastDiagnostics
+                        if (!decodedToken.isNullOrBlank()) {
+                            Log.i(logTag, "Acoustic decode success: $diagnostic")
+                        } else {
+                            Log.w(logTag, "Acoustic decode failed: $diagnostic")
+                        }
                         val payload = mapOf(
-                            "acousticToken" to (
-                                decodedToken
-                                    ?: latestAcousticToken
-                                    ?: "android_mock_ac_${System.currentTimeMillis()}"
-                                ),
+                            "acousticToken" to (decodedToken ?: ""),
                             "bleNonce" to latestBleNonce,
-                            "observedAt" to now
+                            "observedAt" to now,
+                            "source" to source,
+                            "diagnostic" to diagnostic
                         )
                         result.success(payload)
                     }
