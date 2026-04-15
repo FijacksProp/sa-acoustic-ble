@@ -11,8 +11,6 @@ class ScanTestLogModel {
     required this.rssi,
     required this.passedChecks,
     required this.failedChecks,
-    required this.distanceMeters,
-    required this.environmentNotes,
   });
 
   final DateTime recordedAt;
@@ -26,8 +24,6 @@ class ScanTestLogModel {
   final int? rssi;
   final List<String> passedChecks;
   final List<String> failedChecks;
-  final String distanceMeters;
-  final String environmentNotes;
 
   bool get isSuccessful => failedChecks.isEmpty;
 
@@ -44,8 +40,6 @@ class ScanTestLogModel {
       'rssi': rssi,
       'passed_checks': passedChecks,
       'failed_checks': failedChecks,
-      'distance_meters': distanceMeters,
-      'environment_notes': environmentNotes,
     };
   }
 
@@ -67,8 +61,6 @@ class ScanTestLogModel {
       failedChecks: (json['failed_checks'] as List<dynamic>? ?? [])
           .map((item) => item.toString())
           .toList(),
-      distanceMeters: json['distance_meters']?.toString() ?? '',
-      environmentNotes: json['environment_notes']?.toString() ?? '',
     );
   }
 }

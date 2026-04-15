@@ -158,10 +158,20 @@ class AcousticFrameDecoder(private val context: Context) {
     }
 
     private fun decodeBits(bits: List<Int>): String? {
-        if (bits.size < 24) {
+        if (bits.size < MIN_FRAME_BITS) {
             return null
         }
-        var idx = 0
+        for (offset in 0..minOf(MAX_PREAMBLE_SEARCH_BITS, bits.size - MIN_FRAME_BITS)) {
+            val decoded = decodeBitsAtOffset(bits, offset)
+            if (decoded != null) {
+                return decoded
+            }
+        }
+        return null
+    }
+
+    private fun decodeBitsAtOffset(bits: List<Int>, offset: Int): String? {
+        var idx = offset
         val preamble = readByte(bits, idx) ?: return null
         idx += 8
         if (preamble != PREAMBLE) {
@@ -172,7 +182,7 @@ class AcousticFrameDecoder(private val context: Context) {
         if (length <= 0 || length > 255) {
             return null
         }
-        val neededBits = 8 + 8 + (length * 8) + 8
+        val neededBits = offset + 8 + 8 + (length * 8) + 8
         if (bits.size < neededBits) {
             return null
         }
@@ -261,6 +271,8 @@ class AcousticFrameDecoder(private val context: Context) {
         private const val STOP_RATIO = 1.35
         private const val PREAMBLE = 0b10101010
         private const val MAX_BITS = 2200
+        private const val MIN_FRAME_BITS = 24
+        private const val MAX_PREAMBLE_SEARCH_BITS = 64
         private const val MIN_FILTERED_RMS = 120.0
         private const val MIN_BIT_DOMINANCE_RATIO = 1.08
         private val HighPassFilter = BiquadFilter.highPass(

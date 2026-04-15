@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 
 import 'core/session_store.dart';
 import 'models/attendance_proof_model.dart';
+import 'models/scan_result_model.dart';
 import 'models/scan_test_log_model.dart';
 import 'models/session_model.dart';
-import 'models/signal_payload_model.dart';
 import 'models/validation_report_item_model.dart';
 import 'services/attendance_api_service.dart';
 import 'services/acoustic_scan_service.dart';
@@ -244,7 +244,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     if (_role == 'lecturer')
                       _buildRequiredField(_regUsernameController, 'Username'),
                     DropdownButtonFormField<String>(
-                      value: _role,
+                      initialValue: _role,
                       decoration: const InputDecoration(
                         labelText: 'Role',
                         border: OutlineInputBorder(),
@@ -401,6 +401,7 @@ class _LecturerShellState extends State<LecturerShell> {
     LecturerSessionPage(),
     LecturerLivePage(),
     LecturerReportsPage(),
+    LecturerProfilePage(),
   ];
 
   @override
@@ -437,6 +438,10 @@ class _LecturerShellState extends State<LecturerShell> {
             icon: Icon(Icons.analytics_outlined),
             label: 'Reports',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            label: 'Me',
+          ),
         ],
       ),
     );
@@ -459,12 +464,11 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
   final _rssiController = TextEditingController(text: '-60');
-  final _distanceController = TextEditingController();
-  final _environmentController = TextEditingController();
 
   bool _submitting = false;
   bool _scanning = false;
   bool _clearingLogs = false;
+  bool _scanEligibleForSubmit = false;
   String? _deviceId;
   String? _statusMessage;
   int? _decodedSessionId;
@@ -484,8 +488,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
     _rssiController.dispose();
-    _distanceController.dispose();
-    _environmentController.dispose();
     super.dispose();
   }
 
@@ -527,9 +529,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
       );
       return;
     }
-    if (_failedChecks.isNotEmpty) {
+    if (!_scanEligibleForSubmit) {
       setState(() {
-        _statusMessage = 'Scan checks failed. Resolve scan issues before submit.';
+        _statusMessage = 'No valid acoustic-only or BLE-only attendance path is ready yet.';
       });
       return;
     }
@@ -616,21 +618,39 @@ class _StudentScanPageState extends State<StudentScanPage> {
   String _buildTrustSummary({
     required ScanResultModel acoustic,
     required ScanResultModel ble,
-    required List<String> failedChecks,
+    required bool acousticTrusted,
+    required bool bleTrusted,
+    required bool sessionConsistent,
+    required bool freshnessPassed,
   }) {
-    final acousticTrusted = acoustic.source == 'microphone_decode';
-    final bleTrusted = ble.source == 'ble_scan_token';
-
-    if (acousticTrusted && bleTrusted && failedChecks.isEmpty) {
+    if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
       return 'Trusted dual-signal scan';
     }
-    if (acousticTrusted && !bleTrusted) {
-      return 'Acoustic evidence is real, BLE evidence is still weak or incomplete';
+    if (acousticTrusted && sessionConsistent && freshnessPassed) {
+      return 'Trusted acoustic-only scan';
     }
-    if (!acousticTrusted && bleTrusted) {
-      return 'BLE evidence is real, but acoustic decode did not complete cleanly';
+    if (bleTrusted && sessionConsistent && freshnessPassed) {
+      return 'Trusted BLE-only scan';
     }
-    return 'Untrusted scan: at least one required signal was not captured convincingly';
+    return 'Untrusted scan: no valid attendance path was confirmed';
+  }
+
+  bool _isTrustedAcousticSignal(
+    ScanResultModel scan,
+    dynamic acousticDecoded,
+  ) {
+    return acousticDecoded != null &&
+        scan.acousticToken.trim().isNotEmpty &&
+        (scan.source == 'microphone_decode' || scan.source == 'web_broadcast_cache');
+  }
+
+  bool _isTrustedBleSignal(
+    ScanResultModel scan,
+    dynamic bleDecoded,
+  ) {
+    return bleDecoded != null &&
+        (scan.bleNonce?.trim().isNotEmpty ?? false) &&
+        (scan.source == 'ble_scan_token' || scan.source == 'web_broadcast_cache');
   }
 
   Future<void> _runSignalScan() async {
@@ -645,46 +665,39 @@ class _StudentScanPageState extends State<StudentScanPage> {
         acoustic.acousticToken,
       );
       final bleDecoded = SignalPayloadCodec.parseBleNonce(ble.bleNonce ?? '');
+      final acousticTrusted = _isTrustedAcousticSignal(acoustic, acousticDecoded);
+      final bleTrusted = _isTrustedBleSignal(ble, bleDecoded);
       final passed = <String>[];
       final failed = <String>[];
 
-      if (acousticDecoded != null) {
+      if (acousticTrusted) {
         passed.add('Acoustic payload parsed');
-      } else {
+        passed.add('Acoustic evidence came from a trusted broadcast path');
+      } else if (!bleTrusted) {
         failed.add('Acoustic payload parse failed');
-      }
-      if (acoustic.source == 'microphone_decode' || acoustic.source == 'web_broadcast_cache') {
-        passed.add('Acoustic source: ${acoustic.source}');
-      } else {
         failed.add('Acoustic source: ${acoustic.source ?? 'unknown'}');
-      }
-      if (acousticDecoded != null && acoustic.source == 'microphone_decode') {
-        passed.add('Acoustic evidence came from live microphone decode');
       } else {
-        failed.add('Acoustic evidence was not confirmed from live microphone decode');
-      }
-      if (bleDecoded != null) {
-        passed.add('BLE payload parsed');
-      } else {
-        failed.add('BLE payload parse failed');
-      }
-      if (ble.source == 'ble_scan_token' || ble.source == 'web_broadcast_cache') {
-        passed.add('BLE source: ${ble.source}');
-      } else {
-        failed.add('BLE source: ${ble.source ?? 'unknown'}');
-      }
-      if (bleDecoded != null && ble.source == 'ble_scan_token') {
-        passed.add('BLE evidence came from a real parsed advertisement');
-      } else {
-        failed.add('BLE evidence was not confirmed from a real lecturer advertisement');
+        passed.add('Acoustic path was not used for this proof');
       }
 
-      final sessionFromAc = acousticDecoded?.sessionId;
-      final sessionFromBle = bleDecoded?.sessionId;
+      if (bleTrusted) {
+        passed.add('BLE payload parsed');
+        passed.add('BLE evidence came from a trusted advertisement path');
+      } else if (!acousticTrusted) {
+        failed.add('BLE payload parse failed');
+        failed.add('BLE source: ${ble.source ?? 'unknown'}');
+      } else {
+        passed.add('BLE path was not used for this proof');
+      }
+
+      final sessionFromAc = acousticTrusted ? acousticDecoded?.sessionId : null;
+      final sessionFromBle = bleTrusted ? bleDecoded?.sessionId : null;
       int? decodedSession;
+      var sessionConsistent = false;
       if (sessionFromAc != null && sessionFromBle != null) {
         if (sessionFromAc == sessionFromBle) {
           decodedSession = sessionFromAc;
+          sessionConsistent = true;
           passed.add('Session ID matches across acoustic + BLE');
         } else {
           failed.add('Session mismatch between acoustic and BLE');
@@ -692,6 +705,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       } else {
         decodedSession = sessionFromAc ?? sessionFromBle;
         if (decodedSession != null) {
+          sessionConsistent = true;
           passed.add('Session ID decoded from one signal');
         } else {
           failed.add('Session ID not decoded');
@@ -699,17 +713,35 @@ class _StudentScanPageState extends State<StudentScanPage> {
       }
 
       final ages = <int>[];
-      if (acousticDecoded != null) {
+      if (acousticTrusted && acousticDecoded != null) {
         ages.add(SignalPayloadCodec.signalAgeSeconds(acousticDecoded.issuedAt));
       }
-      if (bleDecoded != null) {
+      if (bleTrusted && bleDecoded != null) {
         ages.add(SignalPayloadCodec.signalAgeSeconds(bleDecoded.issuedAt));
       }
       final maxAge = ages.isEmpty ? null : ages.reduce((a, b) => a > b ? a : b);
-      if (maxAge != null && maxAge >= 0 && maxAge <= SignalPayloadCodec.expirySeconds) {
+      final freshnessPassed =
+          maxAge != null &&
+          maxAge >= 0 &&
+          maxAge <= SignalPayloadCodec.expirySeconds;
+      if (freshnessPassed) {
         passed.add('Signal freshness within ${SignalPayloadCodec.expirySeconds}s');
       } else {
         failed.add('Signal freshness failed');
+      }
+
+      String? proofMode;
+      if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
+        proofMode = 'dual_signal';
+        passed.add('Proof path ready: dual_signal');
+      } else if (acousticTrusted && sessionConsistent && freshnessPassed) {
+        proofMode = 'acoustic_only';
+        passed.add('Proof path ready: acoustic_only');
+      } else if (bleTrusted && sessionConsistent && freshnessPassed) {
+        proofMode = 'ble_only';
+        passed.add('Proof path ready: ble_only');
+      } else {
+        failed.add('No valid attendance path is ready for submission');
       }
 
       if (!mounted) {
@@ -718,7 +750,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
       final trustSummary = _buildTrustSummary(
         acoustic: acoustic,
         ble: ble,
-        failedChecks: failed,
+        acousticTrusted: acousticTrusted,
+        bleTrusted: bleTrusted,
+        sessionConsistent: sessionConsistent,
+        freshnessPassed: freshnessPassed,
       );
       final savedLogs = await _scanLogService.addLog(
         ScanTestLogModel(
@@ -733,8 +768,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
           rssi: ble.rssi,
           passedChecks: passed,
           failedChecks: failed,
-          distanceMeters: _distanceController.text.trim(),
-          environmentNotes: _environmentController.text.trim(),
         ),
       );
       setState(() {
@@ -745,9 +778,11 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _signalAgeSeconds = maxAge;
         _passedChecks = passed;
         _failedChecks = failed;
+        _scanEligibleForSubmit = proofMode != null;
         _scanLogs = savedLogs;
         _statusMessage = [
           trustSummary,
+          if (proofMode != null) 'Proof path: $proofMode',
           if ((acoustic.diagnostic ?? '').isNotEmpty)
             'Acoustic: ${acoustic.diagnostic}',
           if ((ble.diagnostic ?? '').isNotEmpty) 'BLE: ${ble.diagnostic}',
@@ -774,6 +809,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _passedChecks = [];
         _decodedSessionId = null;
         _signalAgeSeconds = null;
+        _scanEligibleForSubmit = false;
         _statusMessage = 'Signal scan execution failed: $error';
       });
     } finally {
@@ -815,17 +851,19 @@ class _StudentScanPageState extends State<StudentScanPage> {
             ),
             _InfoRow(
               label: 'Device ID',
-              value: _deviceId ?? 'Generating...',
+              value: SessionStore.displayDeviceId(_deviceId),
             ),
             _buildRequiredField(
               _acousticTokenController,
               'Acoustic Token',
               readOnly: true,
+              required: false,
             ),
             _buildRequiredField(
               _bleNonceController,
               'BLE Nonce',
               readOnly: true,
+              required: false,
             ),
             _buildRequiredField(
               _rssiController,
@@ -834,22 +872,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
               readOnly: true,
             ),
             const SizedBox(height: 16),
-            Text(
-              'Field Test Context',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 10),
-            _buildRequiredField(
-              _distanceController,
-              'Distance (m, optional)',
-              required: false,
-            ),
-            _buildRequiredField(
-              _environmentController,
-              'Noise / Notes (optional)',
-              required: false,
-            ),
-            const SizedBox(height: 6),
             OutlinedButton(
               onPressed: _scanning ? null : _runSignalScan,
               child: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
@@ -1008,7 +1030,7 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
                           )
                         : ListView.separated(
                             itemCount: _proofs.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final proof = _proofs[index];
                               return Card(
@@ -1035,9 +1057,9 @@ class StudentProfilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _PlaceholderPage(
+    return const _AccountProfilePage(
       title: 'Student Profile',
-      subtitle: 'Student ID, device ID, and settings will be managed here.',
+      roleLabel: 'Student',
     );
   }
 }
@@ -1282,7 +1304,7 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                         ? const _EmptyState(title: 'No sessions available.')
                         : ListView.separated(
                             itemCount: _sessions.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final session = _sessions[index];
                               return Card(
@@ -1378,7 +1400,7 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                         ? const _EmptyState(title: 'No validation report rows yet.')
                         : ListView.separated(
                             itemCount: _items.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (_, index) {
                               final row = _items[index];
                               final isPass = row.status == 'pass';
@@ -1419,6 +1441,18 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
   }
 }
 
+class LecturerProfilePage extends StatelessWidget {
+  const LecturerProfilePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const _AccountProfilePage(
+      title: 'Lecturer Profile',
+      roleLabel: 'Lecturer',
+    );
+  }
+}
+
 class _PlaceholderPage extends StatelessWidget {
   const _PlaceholderPage({required this.title, required this.subtitle});
 
@@ -1446,6 +1480,91 @@ class _PlaceholderPage extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AccountProfilePage extends StatefulWidget {
+  const _AccountProfilePage({
+    required this.title,
+    required this.roleLabel,
+  });
+
+  final String title;
+  final String roleLabel;
+
+  @override
+  State<_AccountProfilePage> createState() => _AccountProfilePageState();
+}
+
+class _AccountProfilePageState extends State<_AccountProfilePage> {
+  String? _deviceId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDeviceId();
+  }
+
+  Future<void> _loadDeviceId() async {
+    final deviceId = await SessionStore.ensureDeviceId();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _deviceId = deviceId;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final identity = SessionStore.currentIdentity();
+    final matric = SessionStore.matricNumber?.trim() ?? '';
+    final username = SessionStore.username?.trim() ?? '';
+    final fullName = SessionStore.fullName?.trim() ?? '';
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            widget.title,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          _InfoRow(
+            label: 'Role',
+            value: widget.roleLabel,
+          ),
+          _InfoRow(
+            label: 'Full Name',
+            value: fullName.isEmpty ? '(not available)' : fullName,
+          ),
+          _InfoRow(
+            label: 'Primary ID',
+            value: identity.isEmpty ? '(not available)' : identity,
+          ),
+          if (matric.isNotEmpty)
+            _InfoRow(
+              label: 'Matric Number',
+              value: matric,
+            ),
+          if (username.isNotEmpty)
+            _InfoRow(
+              label: 'Username',
+              value: username,
+            ),
+          _InfoRow(
+            label: 'Readable Device ID',
+            value: SessionStore.displayDeviceId(_deviceId),
+          ),
+          _InfoRow(
+            label: 'Stored Device ID',
+            value: _deviceId ?? 'Generating...',
+          ),
+        ],
       ),
     );
   }
@@ -1658,8 +1777,6 @@ class _ScanTestLogCard extends StatelessWidget {
             Text('Session: ${log.decodedSessionId ?? '-'} | Age: ${log.signalAgeSeconds ?? '-'}s | RSSI: ${log.rssi ?? '-'}'),
             Text('Acoustic source: ${log.acousticSource}'),
             Text('BLE source: ${log.bleSource}'),
-            if (log.distanceMeters.isNotEmpty) Text('Distance: ${log.distanceMeters} m'),
-            if (log.environmentNotes.isNotEmpty) Text('Notes: ${log.environmentNotes}'),
             if (log.acousticDiagnostic.isNotEmpty) Text('Acoustic diag: ${log.acousticDiagnostic}'),
             if (log.bleDiagnostic.isNotEmpty) Text('BLE diag: ${log.bleDiagnostic}'),
             if (log.failedChecks.isNotEmpty) ...[

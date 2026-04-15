@@ -61,6 +61,10 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+        extra_kwargs = {
+            "acoustic_token": {"allow_blank": True},
+            "ble_nonce": {"allow_blank": True},
+        }
 
     def validate(self, attrs):
         observed_at = attrs["observed_at"]
@@ -89,41 +93,53 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
 
         acoustic = attrs["acoustic_token"].strip()
         ble = attrs["ble_nonce"].strip()
-        acoustic_match = self.ACOUSTIC_PATTERN.match(acoustic)
-        if not acoustic_match:
+        acoustic_match = self.ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
+        ble_match = self.BLE_PATTERN.match(ble) if ble else None
+        if acoustic and not acoustic_match:
             raise serializers.ValidationError(
                 {"acoustic_token": "Invalid acoustic token format."}
             )
-        ble_match = self.BLE_PATTERN.match(ble)
-        if not ble_match:
+        if ble and not ble_match:
             raise serializers.ValidationError({"ble_nonce": "Invalid BLE nonce format."})
-
-        ac_session = int(acoustic_match.group("session"))
-        ble_session = int(ble_match.group("session"))
-        if ac_session != session.id or ble_session != session.id:
+        if not acoustic_match and not ble_match:
             raise serializers.ValidationError(
-                {"session": "Payload session_id does not match selected session."}
+                "Provide at least one valid attendance signal: acoustic_token or ble_nonce."
             )
 
-        ac_issued = datetime.fromtimestamp(
-            int(acoustic_match.group("issued")), tz=dt_timezone.utc
-        )
-        ble_issued = datetime.fromtimestamp(
-            int(ble_match.group("issued")), tz=dt_timezone.utc
-        )
-        if (now - ac_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
-            now - ac_issued
-        ).total_seconds() < -10:
-            raise serializers.ValidationError(
-                {"acoustic_token": "Acoustic token has expired."}
+        challenge_token = ""
+        ble_nonce_value = ""
+        if acoustic_match:
+            ac_session = int(acoustic_match.group("session"))
+            if ac_session != session.id:
+                raise serializers.ValidationError(
+                    {"session": "Acoustic payload session_id does not match selected session."}
+                )
+            ac_issued = datetime.fromtimestamp(
+                int(acoustic_match.group("issued")), tz=dt_timezone.utc
             )
-        if (now - ble_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
-            now - ble_issued
-        ).total_seconds() < -10:
-            raise serializers.ValidationError({"ble_nonce": "BLE nonce has expired."})
+            if (now - ac_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
+                now - ac_issued
+            ).total_seconds() < -10:
+                raise serializers.ValidationError(
+                    {"acoustic_token": "Acoustic token has expired."}
+                )
+            challenge_token = acoustic_match.group("challenge")
 
-        challenge_token = acoustic_match.group("challenge")
-        ble_nonce_value = ble_match.group("nonce")
+        if ble_match:
+            ble_session = int(ble_match.group("session"))
+            if ble_session != session.id:
+                raise serializers.ValidationError(
+                    {"session": "BLE payload session_id does not match selected session."}
+                )
+            ble_issued = datetime.fromtimestamp(
+                int(ble_match.group("issued")), tz=dt_timezone.utc
+            )
+            if (now - ble_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
+                now - ble_issued
+            ).total_seconds() < -10:
+                raise serializers.ValidationError({"ble_nonce": "BLE nonce has expired."})
+            ble_nonce_value = ble_match.group("nonce")
+
         attrs["_decoded_challenge_token"] = challenge_token
         attrs["_decoded_ble_nonce"] = ble_nonce_value
         if AttendanceReplayGuard.objects.filter(
@@ -180,14 +196,10 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
 
     def validate_acoustic_token(self, value):
         cleaned = value.strip()
-        if not cleaned:
-            raise serializers.ValidationError("acoustic_token cannot be empty.")
         return cleaned
 
     def validate_ble_nonce(self, value):
         cleaned = value.strip()
-        if not cleaned:
-            raise serializers.ValidationError("ble_nonce cannot be empty.")
         return cleaned
 
     def validate_signature(self, value):

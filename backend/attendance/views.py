@@ -115,16 +115,22 @@ class AttendanceValidationReportAPIView(APIView):
         failed = []
         now = datetime.now(dt_timezone.utc)
 
-        am = self.ACOUSTIC_PATTERN.match(proof.acoustic_token.strip())
-        bm = self.BLE_PATTERN.match(proof.ble_nonce.strip())
+        acoustic_token = proof.acoustic_token.strip()
+        ble_nonce = proof.ble_nonce.strip()
+        am = self.ACOUSTIC_PATTERN.match(acoustic_token) if acoustic_token else None
+        bm = self.BLE_PATTERN.match(ble_nonce) if ble_nonce else None
         if am:
             passed.append("Acoustic format")
-        else:
+        elif acoustic_token:
             failed.append("Acoustic format")
+        else:
+            passed.append("Acoustic not supplied")
         if bm:
             passed.append("BLE format")
-        else:
+        elif ble_nonce:
             failed.append("BLE format")
+        else:
+            passed.append("BLE not supplied")
 
         ac_age = None
         ble_age = None
@@ -152,6 +158,15 @@ class AttendanceValidationReportAPIView(APIView):
                 passed.append("BLE freshness")
             else:
                 failed.append("BLE freshness")
+
+        if am and bm:
+            passed.append("Proof path: dual_signal")
+        elif am:
+            passed.append("Proof path: acoustic_only")
+        elif bm:
+            passed.append("Proof path: ble_only")
+        else:
+            failed.append("Proof path missing")
 
         return {
             "proof_id": proof.id,
