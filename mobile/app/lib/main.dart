@@ -399,10 +399,17 @@ class _LecturerShellState extends State<LecturerShell> {
 
   static const List<Widget> _pages = [
     LecturerSessionPage(),
-    LecturerLivePage(),
+    // LecturerLivePage(), // handled conditionally
     LecturerReportsPage(),
     LecturerProfilePage(),
   ];
+
+  void _loadSession(String sessionId) async {
+    await SessionStore.setCurrentSessionId(sessionId);
+    setState(() {
+      _currentIndex = 0; // Switch to Start Session tab
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -417,7 +424,13 @@ class _LecturerShellState extends State<LecturerShell> {
           ),
         ],
       ),
-      body: _pages[_currentIndex],
+      body: _currentIndex == 1
+          ? LecturerLivePage(onLoadSession: _loadSession)
+          : _currentIndex == 0
+              ? _pages[0]
+              : _currentIndex == 2
+                  ? _pages[1]
+                  : _pages[2],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -473,6 +486,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
   String? _statusMessage;
   int? _decodedSessionId;
   int? _signalAgeSeconds;
+  final Set<int> _submittedSessionIds = <int>{};
   List<String> _passedChecks = [];
   List<String> _failedChecks = [];
   List<ScanTestLogModel> _scanLogs = [];
@@ -494,12 +508,20 @@ class _StudentScanPageState extends State<StudentScanPage> {
   Future<void> _initAutoFields() async {
     final id = await SessionStore.ensureDeviceId();
     final logs = await _scanLogService.loadLogs();
+    final existingProofs = await _api.listProofs(
+      studentId: SessionStore.currentIdentity().isEmpty
+          ? null
+          : SessionStore.currentIdentity(),
+    );
     if (!mounted) {
       return;
     }
     setState(() {
       _deviceId = id;
       _scanLogs = logs;
+      _submittedSessionIds
+        ..clear()
+        ..addAll(existingProofs.map((proof) => proof.sessionId));
     });
   }
 
@@ -532,6 +554,19 @@ class _StudentScanPageState extends State<StudentScanPage> {
     if (!_scanEligibleForSubmit) {
       setState(() {
         _statusMessage = 'No valid acoustic-only or BLE-only attendance path is ready yet.';
+      });
+      return;
+    }
+    if (_submittedSessionIds.contains(sessionId)) {
+      setState(() {
+        _statusMessage =
+            'Attendance has already been submitted for session $sessionId.';
+      });
+      return;
+    }
+    if (_acousticTokenController.text.trim().isEmpty && _bleNonceController.text.trim().isEmpty) {
+      setState(() {
+        _statusMessage = 'No signal data from scan. Please scan again.';
       });
       return;
     }
@@ -577,6 +612,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
       }
       setState(() {
         _statusMessage = 'Attendance proof submitted (id: ${created.id ?? '-'})';
+        _submittedSessionIds.add(sessionId);
+        _scanEligibleForSubmit = false;
       });
     } catch (error) {
       if (!mounted) {
@@ -744,6 +781,11 @@ class _StudentScanPageState extends State<StudentScanPage> {
         failed.add('No valid attendance path is ready for submission');
       }
 
+      if (decodedSession != null && _submittedSessionIds.contains(decodedSession)) {
+        proofMode = null;
+        failed.add('Attendance has already been submitted for this session');
+      }
+
       if (!mounted) {
         return;
       }
@@ -873,7 +915,11 @@ class _StudentScanPageState extends State<StudentScanPage> {
             ),
             const SizedBox(height: 16),
             OutlinedButton(
-              onPressed: _scanning ? null : _runSignalScan,
+              onPressed: (_scanning ||
+                      (_decodedSessionId != null &&
+                          _submittedSessionIds.contains(_decodedSessionId)))
+                  ? null
+                  : _runSignalScan,
               child: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
             ),
             const SizedBox(height: 10),
@@ -1033,14 +1079,18 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
                             separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final proof = _proofs[index];
+                              final displayName = proof.studentName?.isNotEmpty == true
+                                  ? '${proof.studentName} (${proof.studentId})'
+                                  : proof.studentId;
                               return Card(
                                 child: ListTile(
                                   title: Text(
-                                    'Student: ${proof.studentId} | Session: ${proof.sessionId}',
+                                    '${proof.courseCode ?? 'Session'} ${proof.courseTitle?.isNotEmpty == true ? "- ${proof.courseTitle}" : ""}',
                                   ),
                                   subtitle: Text(
-                                    'RSSI ${proof.rssi} at ${proof.observedAt.toLocal()}',
+                                    'Lecturer: ${proof.lecturerName ?? '-'} | Room: ${proof.room ?? '-'}\nStudent: $displayName | Session: ${proof.sessionId}\nRSSI ${proof.rssi} at ${proof.observedAt.toLocal()} | Device: ${SessionStore.displayDeviceId(proof.deviceId)}',
                                   ),
+                                  isThreeLine: true,
                                 ),
                               );
                             },
@@ -1087,15 +1137,33 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   StreamSubscription<BroadcastSnapshot>? _broadcastSub;
 
   @override
-  void dispose() {
-    _broadcast.dispose();
-    _broadcastSub?.cancel();
-    _courseCodeController.dispose();
-    _courseTitleController.dispose();
-    _lecturerNameController.dispose();
-    _roomController.dispose();
-    _tokenVersionController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadCurrentSession();
+  }
+
+  Future<void> _loadCurrentSession() async {
+    final sessionId = SessionStore.currentSessionId;
+    if (sessionId == null) {
+      return;
+    }
+    try {
+      final session = await _api.getSession(sessionId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastSession = session;
+      });
+      // Populate form fields
+      _courseCodeController.text = session.courseCode;
+      _courseTitleController.text = session.courseTitle;
+      _lecturerNameController.text = session.lecturerName;
+      _roomController.text = session.room;
+      _tokenVersionController.text = session.tokenVersion;
+    } catch (error) {
+      // Ignore errors, session might be deleted
+    }
   }
 
   Future<void> _createSession() async {
@@ -1123,6 +1191,7 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
       setState(() {
         _lastSession = created;
       });
+      await SessionStore.setCurrentSessionId(created.id.toString());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Session created (id: ${created.id})')),
       );
@@ -1173,6 +1242,33 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     setState(() {});
   }
 
+  Future<void> _stopSession() async {
+    await SessionStore.setCurrentSessionId(null);
+    setState(() {
+      _lastSession = null;
+      _broadcastSnapshot = null;
+    });
+    _broadcast.stop();
+    // Clear form
+    _courseCodeController.clear();
+    _courseTitleController.clear();
+    _lecturerNameController.clear();
+    _roomController.clear();
+    _tokenVersionController.text = 'v1';
+  }
+
+  @override
+  void dispose() {
+    _broadcast.dispose();
+    _broadcastSub?.cancel();
+    _courseCodeController.dispose();
+    _courseTitleController.dispose();
+    _lecturerNameController.dispose();
+    _roomController.dispose();
+    _tokenVersionController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -1198,6 +1294,13 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
               child: Text(_submitting ? 'Creating...' : 'Create Session'),
             ),
             const SizedBox(height: 10),
+            if (_lastSession != null) ...[
+              OutlinedButton(
+                onPressed: _stopSession,
+                child: const Text('Stop Session'),
+              ),
+              const SizedBox(height: 10),
+            ],
             OutlinedButton(
               onPressed: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
               child: Text(_broadcast.isRunning ? 'Stop Broadcast' : 'Start Broadcast'),
@@ -1230,7 +1333,9 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
 }
 
 class LecturerLivePage extends StatefulWidget {
-  const LecturerLivePage({super.key});
+  const LecturerLivePage({super.key, required this.onLoadSession});
+
+  final void Function(String sessionId) onLoadSession;
 
   @override
   State<LecturerLivePage> createState() => _LecturerLivePageState();
@@ -1278,6 +1383,54 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
     }
   }
 
+  Future<void> _deleteSession(SessionModel session) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Session'),
+        content: Text(
+          'Delete ${session.courseCode} permanently? This will also remove its attendance proofs.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      await _api.deleteSession(session.id.toString());
+      if (!mounted) {
+        return;
+      }
+      if (SessionStore.currentSessionId == session.id.toString()) {
+        await SessionStore.setCurrentSessionId(null);
+      }
+      await _loadSessions();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Session ${session.courseCode} deleted.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1309,6 +1462,7 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                               final session = _sessions[index];
                               return Card(
                                 child: ListTile(
+                                  onTap: () => widget.onLoadSession(session.id.toString()),
                                   title: Text(
                                     '${session.courseCode} - ${session.courseTitle}',
                                   ),
@@ -1316,8 +1470,22 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                                     'Room ${session.room} | ${session.startsAt.toLocal()}',
                                   ),
                                   trailing: session.active
-                                      ? const Chip(label: Text('Active'))
-                                      : const Chip(label: Text('Closed')),
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Chip(label: Text('Active')),
+                                            IconButton(
+                                              onPressed: () => _deleteSession(session),
+                                              icon: const Icon(Icons.delete_outline),
+                                              tooltip: 'Delete session',
+                                            ),
+                                          ],
+                                        )
+                                      : IconButton(
+                                          onPressed: () => _deleteSession(session),
+                                          icon: const Icon(Icons.delete_outline),
+                                          tooltip: 'Delete session',
+                                        ),
                                 ),
                               );
                             },
@@ -1341,10 +1509,12 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
   bool _loading = true;
   String? _error;
   List<ValidationReportItemModel> _items = [];
+  String? _currentSessionId;
 
   @override
   void initState() {
     super.initState();
+    _currentSessionId = SessionStore.currentSessionId;
     _loadReport();
   }
 
@@ -1352,9 +1522,19 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
     setState(() {
       _loading = true;
       _error = null;
+      _currentSessionId = SessionStore.currentSessionId;
     });
     try {
-      final report = await _api.getValidationReport();
+      if (_currentSessionId == null || _currentSessionId!.trim().isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _items = [];
+        });
+        return;
+      }
+      final report = await _api.getValidationReport(sessionId: _currentSessionId);
       if (!mounted) {
         return;
       }
@@ -1385,6 +1565,13 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text('Validation Report', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 6),
+          Text(
+            _currentSessionId == null
+                ? 'No current session selected. Showing none until a session is selected.'
+                : 'Current session: $_currentSessionId',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
           const SizedBox(height: 10),
           FilledButton(
             onPressed: _loadReport,
@@ -1397,7 +1584,7 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                 : _error != null
                     ? _ErrorState(message: _error!, onRetry: _loadReport)
                     : _items.isEmpty
-                        ? const _EmptyState(title: 'No validation report rows yet.')
+                        ? const _EmptyState(title: 'No validation report rows for the current session.')
                         : ListView.separated(
                             itemCount: _items.length,
                             separatorBuilder: (_, _) => const SizedBox(height: 8),
@@ -1411,7 +1598,18 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Proof ${row.proofId} | Session ${row.sessionId} | Student ${row.studentId}',
+                                        'Proof ${row.proofId} | Session ${row.sessionId}',
+                                      ),
+                                      if ((row.courseCode ?? '').isNotEmpty || (row.courseTitle ?? '').isNotEmpty)
+                                        Text(
+                                          '${row.courseCode ?? ''}${(row.courseTitle ?? '').isNotEmpty ? " - ${row.courseTitle}" : ""}',
+                                        ),
+                                      if ((row.lecturerName ?? '').isNotEmpty || (row.room ?? '').isNotEmpty)
+                                        Text(
+                                          'Lecturer: ${row.lecturerName ?? '-'} | Room: ${row.room ?? '-'}',
+                                        ),
+                                      Text(
+                                        'Student: ${row.studentName ?? "Unknown"} (${row.studentId})',
                                       ),
                                       const SizedBox(height: 6),
                                       Text(
@@ -1523,46 +1721,92 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
     final matric = SessionStore.matricNumber?.trim() ?? '';
     final username = SessionStore.username?.trim() ?? '';
     final fullName = SessionStore.fullName?.trim() ?? '';
+    final accent = widget.roleLabel == 'Lecturer'
+        ? Colors.indigo.shade700
+        : Colors.green.shade700;
+    final roleIcon = widget.roleLabel == 'Lecturer' ? Icons.school : Icons.badge;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: accent,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: Colors.white,
+                  child: Icon(roleIcon, color: accent, size: 30),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  fullName.isEmpty ? widget.title : fullName,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.roleLabel,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white.withOpacity(0.92),
+                      ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _ProfileChip(
+                      label: identity.isEmpty ? 'No primary ID' : identity,
+                    ),
+                    _ProfileChip(
+                      label: SessionStore.displayDeviceId(_deviceId),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
           Text(
-            widget.title,
-            style: Theme.of(context).textTheme.titleLarge,
+            'Account Details',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-          const SizedBox(height: 12),
-          _InfoRow(
-            label: 'Role',
-            value: widget.roleLabel,
+          const SizedBox(height: 10),
+          _ProfileDetailCard(
+            items: [
+              _ProfileDetailItem(label: 'Full Name', value: fullName.isEmpty ? '(not available)' : fullName),
+              _ProfileDetailItem(label: 'Primary ID', value: identity.isEmpty ? '(not available)' : identity),
+              if (matric.isNotEmpty) _ProfileDetailItem(label: 'Matric Number', value: matric),
+              if (username.isNotEmpty) _ProfileDetailItem(label: 'Username', value: username),
+            ],
           ),
-          _InfoRow(
-            label: 'Full Name',
-            value: fullName.isEmpty ? '(not available)' : fullName,
+          const SizedBox(height: 14),
+          Text(
+            'Device',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-          _InfoRow(
-            label: 'Primary ID',
-            value: identity.isEmpty ? '(not available)' : identity,
-          ),
-          if (matric.isNotEmpty)
-            _InfoRow(
-              label: 'Matric Number',
-              value: matric,
-            ),
-          if (username.isNotEmpty)
-            _InfoRow(
-              label: 'Username',
-              value: username,
-            ),
-          _InfoRow(
-            label: 'Readable Device ID',
-            value: SessionStore.displayDeviceId(_deviceId),
-          ),
-          _InfoRow(
-            label: 'Stored Device ID',
-            value: _deviceId ?? 'Generating...',
+          const SizedBox(height: 10),
+          _ProfileDetailCard(
+            items: [
+              _ProfileDetailItem(
+                label: 'Readable Device ID',
+                value: SessionStore.displayDeviceId(_deviceId),
+              ),
+              _ProfileDetailItem(
+                label: 'Stored Device ID',
+                value: _deviceId ?? 'Generating...',
+              ),
+            ],
           ),
         ],
       ),
@@ -1638,6 +1882,85 @@ class _InfoRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ProfileChip extends StatelessWidget {
+  const _ProfileChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+class _ProfileDetailCard extends StatelessWidget {
+  const _ProfileDetailCard({required this.items});
+
+  final List<_ProfileDetailItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      items[i].label,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      items[i].value,
+                      textAlign: TextAlign.right,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+              if (i != items.length - 1) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileDetailItem {
+  const _ProfileDetailItem({required this.label, required this.value});
+
+  final String label;
+  final String value;
 }
 
 class _BroadcastPayloadCard extends StatelessWidget {

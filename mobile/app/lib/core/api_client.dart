@@ -38,6 +38,11 @@ class ApiClient {
     return _decodeResponse(response);
   }
 
+  Future<Map<String, dynamic>> delete(String path) async {
+    final response = await _client.delete(_uri(path), headers: _headers());
+    return _decodeResponse(response);
+  }
+
   Map<String, String> _headers() {
     final headers = <String, String>{'Content-Type': 'application/json'};
     final token = SessionStore.token;
@@ -49,7 +54,23 @@ class ApiClient {
 
   Map<String, dynamic> _decodeResponse(http.Response response) {
     final body = response.body.isEmpty ? '{}' : response.body;
-    final decoded = jsonDecode(body);
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      if (body.trimLeft().startsWith('<')) {
+        final previewLength = body.length.clamp(0, 300).toInt();
+        throw ApiException(
+          'Unexpected HTML response (${response.statusCode}): ${body.substring(0, previewLength)}',
+          statusCode: response.statusCode,
+        );
+      }
+      throw ApiException(
+        'Unable to decode JSON response (${response.statusCode}): $body',
+        statusCode: response.statusCode,
+      );
+    }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (decoded is Map<String, dynamic>) {

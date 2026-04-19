@@ -46,12 +46,23 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         r"^ble\|(?P<session>\d+)\|(?P<issued>\d{10})\|(?P<nonce>[A-Za-z0-9_]+)$"
     )
 
+    student_name = serializers.SerializerMethodField()
+    course_code = serializers.CharField(source="session.course_code", read_only=True)
+    course_title = serializers.CharField(source="session.course_title", read_only=True)
+    lecturer_name = serializers.CharField(source="session.lecturer_name", read_only=True)
+    room = serializers.CharField(source="session.room", read_only=True)
+
     class Meta:
         model = AttendanceProof
         fields = [
             "id",
             "session",
             "student_id",
+            "student_name",
+            "course_code",
+            "course_title",
+            "lecturer_name",
+            "room",
             "device_id",
             "acoustic_token",
             "ble_nonce",
@@ -207,6 +218,19 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         if not cleaned:
             raise serializers.ValidationError("signature cannot be empty.")
         return cleaned
+
+    def get_student_name(self, obj):
+        # For students, student_id is matric_number
+        try:
+            profile = UserProfile.objects.get(matric_number=obj.student_id)
+            return profile.user.first_name
+        except UserProfile.DoesNotExist:
+            # For lecturers, student_id is username
+            try:
+                user = User.objects.get(username=obj.student_id)
+                return user.first_name
+            except User.DoesNotExist:
+                return ''
 
 
 class RegisterSerializer(serializers.Serializer):

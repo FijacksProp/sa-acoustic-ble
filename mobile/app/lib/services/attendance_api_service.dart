@@ -21,6 +21,15 @@ class AttendanceApiService {
         .toList();
   }
 
+  Future<SessionModel> getSession(String sessionId) async {
+    final json = await _client.getMap('/api/sessions/$sessionId/');
+    return SessionModel.fromJson(json);
+  }
+
+  Future<void> deleteSession(String sessionId) async {
+    await _client.delete('/api/sessions/$sessionId/');
+  }
+
   Future<AttendanceProofModel> submitProof(AttendanceProofModel proof) async {
     final json = await _client.postJson('/api/attendance/', proof.toJson());
     return AttendanceProofModel.fromJson(json);
@@ -48,8 +57,13 @@ class AttendanceApiService {
         .toList();
   }
 
-  Future<List<ValidationReportItemModel>> getValidationReport() async {
-    final list = await _client.getList('/api/attendance/report/');
+  Future<List<ValidationReportItemModel>> getValidationReport({
+    String? sessionId,
+  }) async {
+    final path = (sessionId != null && sessionId.trim().isNotEmpty)
+        ? '/api/attendance/report/?session=${Uri.encodeQueryComponent(sessionId.trim())}'
+        : '/api/attendance/report/';
+    final list = await _client.getList(path);
     return list
         .cast<Map<String, dynamic>>()
         .map(ValidationReportItemModel.fromJson)

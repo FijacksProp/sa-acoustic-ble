@@ -3,6 +3,11 @@ class AttendanceProofModel {
     this.id,
     required this.sessionId,
     required this.studentId,
+    this.studentName,
+    this.courseCode,
+    this.courseTitle,
+    this.lecturerName,
+    this.room,
     required this.deviceId,
     required this.acousticToken,
     required this.bleNonce,
@@ -14,6 +19,11 @@ class AttendanceProofModel {
   final int? id;
   final int sessionId;
   final String studentId;
+  final String? studentName;
+  final String? courseCode;
+  final String? courseTitle;
+  final String? lecturerName;
+  final String? room;
   final String deviceId;
   final String acousticToken;
   final String bleNonce;
@@ -39,6 +49,11 @@ class AttendanceProofModel {
       id: json['id'] as int?,
       sessionId: json['session'] as int,
       studentId: json['student_id'] as String? ?? '',
+      studentName: json['student_name'] as String?,
+      courseCode: json['course_code'] as String?,
+      courseTitle: json['course_title'] as String?,
+      lecturerName: json['lecturer_name'] as String?,
+      room: json['room'] as String?,
       deviceId: json['device_id'] as String? ?? '',
       acousticToken: json['acoustic_token'] as String? ?? '',
       bleNonce: json['ble_nonce'] as String? ?? '',

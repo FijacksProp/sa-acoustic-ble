@@ -15,7 +15,7 @@ class AcousticFrameDecoder(private val context: Context) {
     var lastDiagnostics: String = "idle"
         private set
 
-    fun decodeFromMic(scanDurationMs: Int = 2800): String? {
+    fun decodeFromMic(scanDurationMs: Int = 6000): String? {
         if (!hasRecordPermission()) {
             lastDiagnostics = "record_audio_permission_missing"
             return null
@@ -261,7 +261,7 @@ class AcousticFrameDecoder(private val context: Context) {
 
     companion object {
         private const val SAMPLE_RATE = 44100
-        private const val BIT_DURATION_MS = 35
+        private const val BIT_DURATION_MS = 12
         private val WINDOW_SAMPLES = SAMPLE_RATE * BIT_DURATION_MS / 1000
         private const val BIT0_FREQUENCY = 19000.0
         private const val BIT1_FREQUENCY = 19500.0
@@ -273,7 +273,7 @@ class AcousticFrameDecoder(private val context: Context) {
         private const val MAX_BITS = 2200
         private const val MIN_FRAME_BITS = 24
         private const val MAX_PREAMBLE_SEARCH_BITS = 64
-        private const val MIN_FILTERED_RMS = 120.0
+        private const val MIN_FILTERED_RMS = 90.0
         private const val MIN_BIT_DOMINANCE_RATIO = 1.08
         private val HighPassFilter = BiquadFilter.highPass(
             sampleRate = SAMPLE_RATE.toDouble(),

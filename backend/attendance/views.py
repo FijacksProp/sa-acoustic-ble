@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone as dt_timezone
 
+from django.contrib.auth.models import User
 from rest_framework import viewsets, generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -31,6 +32,12 @@ class SessionViewSet(viewsets.ModelViewSet):
         if profile.role != UserProfile.ROLE_LECTURER:
             raise PermissionDenied("Only lecturers can create sessions.")
         serializer.save(created_by=profile)
+
+    def perform_destroy(self, instance):
+        profile = self.request.user.profile
+        if profile.role != UserProfile.ROLE_LECTURER or instance.created_by_id != profile.id:
+            raise PermissionDenied("Only the lecturer who created this session can delete it.")
+        instance.delete()
 
 
 class AttendanceProofListCreateAPIView(generics.ListCreateAPIView):
@@ -102,13 +109,30 @@ class AttendanceValidationReportAPIView(APIView):
         if profile.role != UserProfile.ROLE_LECTURER:
             raise PermissionDenied("Only lecturers can view validation report.")
 
+        session_id = request.query_params.get("session")
         proofs = (
             AttendanceProof.objects.select_related("session")
             .filter(session__created_by=profile)
-            .order_by("-created_at")[:100]
+            .order_by("-created_at")
         )
+        if session_id:
+            proofs = proofs.filter(session_id=session_id)
+        proofs = proofs[:100]
         items = [self._build_item(proof) for proof in proofs]
         return Response({"results": items}, status=status.HTTP_200_OK)
+
+    def _resolve_student_name(self, student_id: str) -> str:
+        try:
+            profile = UserProfile.objects.select_related("user").get(
+                matric_number=student_id
+            )
+            return profile.user.first_name
+        except UserProfile.DoesNotExist:
+            try:
+                user = User.objects.get(username=student_id)
+                return user.first_name
+            except User.DoesNotExist:
+                return "Unknown"
 
     def _build_item(self, proof: AttendanceProof):
         passed = []
@@ -172,6 +196,11 @@ class AttendanceValidationReportAPIView(APIView):
             "proof_id": proof.id,
             "session_id": proof.session_id,
             "student_id": proof.student_id,
+            "student_name": self._resolve_student_name(proof.student_id),
+            "course_code": proof.session.course_code,
+            "course_title": proof.session.course_title,
+            "lecturer_name": proof.session.lecturer_name,
+            "room": proof.session.room,
             "observed_at": proof.observed_at,
             "acoustic_age_seconds": ac_age,
             "ble_age_seconds": ble_age,

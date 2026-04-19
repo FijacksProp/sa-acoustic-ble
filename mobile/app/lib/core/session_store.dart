@@ -8,6 +8,7 @@ class SessionStore {
   static const _keyUsername = 'auth_username';
   static const _keyFullName = 'auth_full_name';
   static const _keyDeviceId = 'device_id';
+  static const _keyCurrentSessionId = 'current_session_id';
 
   static String? token;
   static String? role;
@@ -15,6 +16,7 @@ class SessionStore {
   static String? username;
   static String? fullName;
   static String? deviceId;
+  static String? currentSessionId;
 
   static bool get isAuthenticated => token != null && token!.isNotEmpty;
 
@@ -26,6 +28,7 @@ class SessionStore {
     username = prefs.getString(_keyUsername);
     fullName = prefs.getString(_keyFullName);
     deviceId = prefs.getString(_keyDeviceId);
+    currentSessionId = prefs.getString(_keyCurrentSessionId);
   }
 
   static Future<void> save({
@@ -55,6 +58,7 @@ class SessionStore {
     username = null;
     fullName = null;
     deviceId = null;
+    currentSessionId = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyToken);
     await prefs.remove(_keyRole);
@@ -62,6 +66,7 @@ class SessionStore {
     await prefs.remove(_keyUsername);
     await prefs.remove(_keyFullName);
     await prefs.remove(_keyDeviceId);
+    await prefs.remove(_keyCurrentSessionId);
   }
 
   static String currentIdentity() {
@@ -86,6 +91,16 @@ class SessionStore {
     deviceId = generated;
     await prefs.setString(_keyDeviceId, generated);
     return generated;
+  }
+
+  static Future<void> setCurrentSessionId(String? sessionId) async {
+    currentSessionId = sessionId;
+    final prefs = await SharedPreferences.getInstance();
+    if (sessionId == null) {
+      await prefs.remove(_keyCurrentSessionId);
+    } else {
+      await prefs.setString(_keyCurrentSessionId, sessionId);
+    }
   }
 
   static String displayDeviceId([String? rawDeviceId]) {

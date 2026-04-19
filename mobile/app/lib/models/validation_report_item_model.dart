@@ -8,6 +8,11 @@ class ValidationReportItemModel {
     required this.failedChecks,
     this.acousticAgeSeconds,
     this.bleAgeSeconds,
+    this.studentName,
+    this.courseCode,
+    this.courseTitle,
+    this.lecturerName,
+    this.room,
   });
 
   final int proofId;
@@ -18,12 +23,22 @@ class ValidationReportItemModel {
   final List<String> failedChecks;
   final int? acousticAgeSeconds;
   final int? bleAgeSeconds;
+  final String? studentName;
+  final String? courseCode;
+  final String? courseTitle;
+  final String? lecturerName;
+  final String? room;
 
   factory ValidationReportItemModel.fromJson(Map<String, dynamic> json) {
     return ValidationReportItemModel(
       proofId: (json['proof_id'] as num?)?.toInt() ?? 0,
       sessionId: (json['session_id'] as num?)?.toInt() ?? 0,
       studentId: json['student_id']?.toString() ?? '',
+      studentName: json['student_name']?.toString(),
+      courseCode: json['course_code']?.toString(),
+      courseTitle: json['course_title']?.toString(),
+      lecturerName: json['lecturer_name']?.toString(),
+      room: json['room']?.toString(),
       status: json['status']?.toString() ?? 'fail',
       passedChecks: (json['passed_checks'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
