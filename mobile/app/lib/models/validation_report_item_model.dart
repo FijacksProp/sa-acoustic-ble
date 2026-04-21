@@ -13,6 +13,10 @@ class ValidationReportItemModel {
     this.courseTitle,
     this.lecturerName,
     this.room,
+    this.faceVerificationStatus,
+    this.attendanceFaceImageBase64,
+    this.enrolledFaceImageBase64,
+    this.faceMatchScore,
   });
 
   final int proofId;
@@ -28,6 +32,10 @@ class ValidationReportItemModel {
   final String? courseTitle;
   final String? lecturerName;
   final String? room;
+  final String? faceVerificationStatus;
+  final String? attendanceFaceImageBase64;
+  final String? enrolledFaceImageBase64;
+  final double? faceMatchScore;
 
   factory ValidationReportItemModel.fromJson(Map<String, dynamic> json) {
     return ValidationReportItemModel(
@@ -39,6 +47,11 @@ class ValidationReportItemModel {
       courseTitle: json['course_title']?.toString(),
       lecturerName: json['lecturer_name']?.toString(),
       room: json['room']?.toString(),
+      faceVerificationStatus: json['face_verification_status']?.toString(),
+      attendanceFaceImageBase64:
+          json['attendance_face_image_base64']?.toString(),
+      enrolledFaceImageBase64: json['enrolled_face_image_base64']?.toString(),
+      faceMatchScore: (json['face_match_score'] as num?)?.toDouble(),
       status: json['status']?.toString() ?? 'fail',
       passedChecks: (json['passed_checks'] as List<dynamic>? ?? [])
           .map((e) => e.toString())

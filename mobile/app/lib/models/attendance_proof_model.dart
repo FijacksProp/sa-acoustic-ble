@@ -14,6 +14,9 @@ class AttendanceProofModel {
     required this.rssi,
     required this.observedAt,
     required this.signature,
+    this.attendanceFaceImageBase64,
+    this.faceVerificationStatus,
+    this.faceMatchScore,
   });
 
   final int? id;
@@ -30,9 +33,12 @@ class AttendanceProofModel {
   final int rssi;
   final DateTime observedAt;
   final String signature;
+  final String? attendanceFaceImageBase64;
+  final String? faceVerificationStatus;
+  final double? faceMatchScore;
 
   Map<String, dynamic> toJson() {
-    return {
+    final json = <String, dynamic>{
       'session': sessionId,
       'student_id': studentId,
       'device_id': deviceId,
@@ -42,6 +48,16 @@ class AttendanceProofModel {
       'observed_at': observedAt.toUtc().toIso8601String(),
       'signature': signature,
     };
+    if ((attendanceFaceImageBase64 ?? '').trim().isNotEmpty) {
+      json['attendance_face_image_base64'] = attendanceFaceImageBase64!.trim();
+    }
+    if ((faceVerificationStatus ?? '').trim().isNotEmpty) {
+      json['face_verification_status'] = faceVerificationStatus!.trim();
+    }
+    if (faceMatchScore != null) {
+      json['face_match_score'] = faceMatchScore;
+    }
+    return json;
   }
 
   factory AttendanceProofModel.fromJson(Map<String, dynamic> json) {
@@ -60,6 +76,10 @@ class AttendanceProofModel {
       rssi: json['rssi'] as int? ?? 0,
       observedAt: DateTime.parse(json['observed_at'] as String),
       signature: json['signature'] as String? ?? '',
+      attendanceFaceImageBase64:
+          json['attendance_face_image_base64'] as String?,
+      faceVerificationStatus: json['face_verification_status'] as String?,
+      faceMatchScore: (json['face_match_score'] as num?)?.toDouble(),
     );
   }
 }

@@ -72,7 +72,7 @@ class LecturerBroadcastService {
     }
     final issuedAt = DateTime.now().toUtc();
     final challengeToken = _randomToken(prefix: 'ac');
-    final bleNonce = _randomToken(prefix: 'ble');
+    final bleNonce = _randomToken(prefix: '', length: 8);
 
     _latest = BroadcastSnapshot(
       acousticPayload: AcousticPayload(
@@ -117,10 +117,13 @@ class LecturerBroadcastService {
     );
   }
 
-  String _randomToken({required String prefix}) {
+  String _randomToken({required String prefix, int length = 12}) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final rand = Random.secure();
-    final suffix = List.generate(12, (_) => chars[rand.nextInt(chars.length)]).join();
+    final suffix = List.generate(length, (_) => chars[rand.nextInt(chars.length)]).join();
+    if (prefix.isEmpty) {
+      return suffix;
+    }
     return '${prefix}_$suffix';
   }
 }

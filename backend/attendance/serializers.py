@@ -51,6 +51,8 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
     course_title = serializers.CharField(source="session.course_title", read_only=True)
     lecturer_name = serializers.CharField(source="session.lecturer_name", read_only=True)
     room = serializers.CharField(source="session.room", read_only=True)
+    face_verification_status = serializers.CharField(required=False)
+    face_match_score = serializers.FloatField(required=False)
 
     class Meta:
         model = AttendanceProof
@@ -69,12 +71,16 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "rssi",
             "observed_at",
             "signature",
+            "attendance_face_image_base64",
+            "face_verification_status",
+            "face_match_score",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
         extra_kwargs = {
             "acoustic_token": {"allow_blank": True},
             "ble_nonce": {"allow_blank": True},
+            "attendance_face_image_base64": {"allow_blank": True},
         }
 
     def validate(self, attrs):
@@ -174,6 +180,14 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         attrs["acoustic_token"] = attrs["acoustic_token"].strip()
         attrs["ble_nonce"] = attrs["ble_nonce"].strip()
         attrs["signature"] = attrs["signature"].strip()
+        attrs["attendance_face_image_base64"] = attrs.get(
+            "attendance_face_image_base64", ""
+        ).strip()
+        attrs["face_verification_status"] = (
+            attrs.get("face_verification_status", "not_required").strip()
+            or "not_required"
+        )
+        attrs["face_match_score"] = float(attrs.get("face_match_score") or 0)
         return attrs
 
     def create(self, validated_data):
@@ -239,6 +253,7 @@ class RegisterSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150, required=False, allow_blank=True)
     role = serializers.ChoiceField(choices=UserProfile.ROLE_CHOICES)
     password = serializers.CharField(write_only=True, min_length=6)
+    face_image_base64 = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
         role = attrs["role"]
@@ -276,6 +291,7 @@ class RegisterSerializer(serializers.Serializer):
         username = validated_data["username"]
         role = validated_data["role"]
         password = validated_data["password"]
+        face_image_base64 = validated_data.get("face_image_base64", "").strip()
 
         user = User.objects.create_user(
             username=username,
@@ -286,6 +302,7 @@ class RegisterSerializer(serializers.Serializer):
             user=user,
             matric_number=matric_number,
             role=role,
+            face_image_base64=face_image_base64,
         )
         token, _ = Token.objects.get_or_create(user=user)
         return {
@@ -294,6 +311,7 @@ class RegisterSerializer(serializers.Serializer):
             "username": user.username,
             "role": profile.role,
             "full_name": user.first_name,
+            "has_face_enrollment": bool(profile.face_image_base64),
         }
 
 
@@ -320,4 +338,5 @@ class LoginSerializer(serializers.Serializer):
             "username": user.username,
             "role": profile.role,
             "full_name": user.first_name,
+            "has_face_enrollment": bool(profile.face_image_base64),
         }

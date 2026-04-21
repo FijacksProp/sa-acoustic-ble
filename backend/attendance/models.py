@@ -36,6 +36,9 @@ class AttendanceProof(models.Model):
 
     observed_at = models.DateTimeField()
     signature = models.TextField()
+    attendance_face_image_base64 = models.TextField(blank=True)
+    face_verification_status = models.CharField(max_length=32, default="pending_review")
+    face_match_score = models.FloatField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -57,6 +60,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     matric_number = models.CharField(max_length=64, unique=True, null=True, blank=True)
     role = models.CharField(max_length=16, choices=ROLE_CHOICES)
+    face_image_base64 = models.TextField(blank=True)
 
     def __str__(self) -> str:
         return f"{self.matric_number} ({self.role})"

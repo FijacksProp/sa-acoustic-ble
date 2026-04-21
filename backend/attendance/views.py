@@ -95,6 +95,43 @@ class LoginAPIView(generics.GenericAPIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class FaceEnrollmentAPIView(APIView):
+    def post(self, request):
+        profile = request.user.profile
+        if profile.role != UserProfile.ROLE_STUDENT:
+            raise PermissionDenied("Only students can enroll a face profile.")
+
+        face_image_base64 = (request.data.get("face_image_base64") or "").strip()
+        if not face_image_base64:
+            return Response(
+                {"face_image_base64": "Face image is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        profile.face_image_base64 = face_image_base64
+        profile.save(update_fields=["face_image_base64"])
+        return Response(
+            {"has_face_enrollment": True},
+            status=status.HTTP_200_OK,
+        )
+
+
+class MeAPIView(APIView):
+    def get(self, request):
+        profile = request.user.profile
+        return Response(
+            {
+                "username": request.user.username,
+                "full_name": request.user.first_name,
+                "role": profile.role,
+                "matric_number": profile.matric_number,
+                "has_face_enrollment": bool(profile.face_image_base64),
+                "face_image_base64": profile.face_image_base64 if profile.role == UserProfile.ROLE_STUDENT else "",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class AttendanceValidationReportAPIView(APIView):
     ACOUSTIC_PATTERN = re.compile(
         r"^ac\|(?P<session>\d+)\|(?P<version>[A-Za-z0-9_.-]+)\|(?P<issued>\d{10})\|(?P<challenge>[A-Za-z0-9_]+)$"
@@ -134,10 +171,19 @@ class AttendanceValidationReportAPIView(APIView):
             except User.DoesNotExist:
                 return "Unknown"
 
+    def _resolve_student_profile(self, student_id: str):
+        try:
+            return UserProfile.objects.select_related("user").get(
+                matric_number=student_id
+            )
+        except UserProfile.DoesNotExist:
+            return None
+
     def _build_item(self, proof: AttendanceProof):
         passed = []
         failed = []
         now = datetime.now(dt_timezone.utc)
+        student_profile = self._resolve_student_profile(proof.student_id)
 
         acoustic_token = proof.acoustic_token.strip()
         ble_nonce = proof.ble_nonce.strip()
@@ -204,6 +250,12 @@ class AttendanceValidationReportAPIView(APIView):
             "observed_at": proof.observed_at,
             "acoustic_age_seconds": ac_age,
             "ble_age_seconds": ble_age,
+            "face_verification_status": proof.face_verification_status,
+            "attendance_face_image_base64": proof.attendance_face_image_base64,
+            "enrolled_face_image_base64": (
+                student_profile.face_image_base64 if student_profile else ""
+            ),
+            "face_match_score": proof.face_match_score,
             "passed_checks": passed,
             "failed_checks": failed,
             "status": "pass" if not failed else "fail",

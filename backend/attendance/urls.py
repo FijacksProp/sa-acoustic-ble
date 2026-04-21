@@ -6,6 +6,8 @@ from .views import (
     SessionViewSet,
     RegisterAPIView,
     LoginAPIView,
+    FaceEnrollmentAPIView,
+    MeAPIView,
     AttendanceValidationReportAPIView,
 )
 
@@ -19,4 +21,6 @@ urlpatterns = [
     path("attendance/report/", AttendanceValidationReportAPIView.as_view(), name="attendance-validation-report"),
     path("auth/register/", RegisterAPIView.as_view(), name="auth-register"),
     path("auth/login/", LoginAPIView.as_view(), name="auth-login"),
+    path("auth/face-enrollment/", FaceEnrollmentAPIView.as_view(), name="auth-face-enrollment"),
+    path("auth/me/", MeAPIView.as_view(), name="auth-me"),
 ]

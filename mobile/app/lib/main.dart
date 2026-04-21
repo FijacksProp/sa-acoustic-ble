@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import 'core/session_store.dart';
+import 'face/auto_face_capture_screen.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/scan_result_model.dart';
 import 'models/scan_test_log_model.dart';
@@ -14,12 +16,28 @@ import 'services/attendance_api_service.dart';
 import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
 import 'services/auth_service.dart';
+import 'services/face_verification_service.dart';
 import 'services/lecturer_broadcast_service.dart';
 import 'services/scan_test_log_service.dart';
 import 'services/signal_payload_codec.dart';
 
 void main() {
   runApp(const SaAcousticBleApp());
+}
+
+Future<AutoFaceCaptureResult?> _captureFaceImage(
+  BuildContext context, {
+  required String title,
+  required String subtitle,
+}) async {
+  return Navigator.of(context).push<AutoFaceCaptureResult>(
+    MaterialPageRoute(
+      builder: (_) => AutoFaceCaptureScreen(
+        title: title,
+        subtitle: subtitle,
+      ),
+    ),
+  );
 }
 
 class SaAcousticBleApp extends StatelessWidget {
@@ -116,6 +134,8 @@ class _AuthScreenState extends State<AuthScreen> {
   final _regMatricController = TextEditingController();
   final _regPasswordController = TextEditingController();
   String _role = 'student';
+  String? _registrationFaceBase64;
+  final bool _capturingRegistrationFace = false;
 
   bool _loading = false;
 
@@ -491,6 +511,18 @@ class _StudentScanPageState extends State<StudentScanPage> {
   List<String> _failedChecks = [];
   List<ScanTestLogModel> _scanLogs = [];
 
+  void _showFeedback(String message, {bool success = false}) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: success ? Colors.green.shade700 : null,
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -546,15 +578,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
     final rssi = int.tryParse(_rssiController.text.trim());
     final sessionId = _decodedSessionId;
     if (sessionId == null || rssi == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Run scan first to decode session and RSSI.')),
-      );
+      _showFeedback('Run scan first to decode session and RSSI.');
       return;
     }
     if (!_scanEligibleForSubmit) {
       setState(() {
         _statusMessage = 'No valid acoustic-only or BLE-only attendance path is ready yet.';
       });
+      _showFeedback('No valid attendance path is ready yet. Run a fresh scan.');
       return;
     }
     if (_submittedSessionIds.contains(sessionId)) {
@@ -562,12 +593,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _statusMessage =
             'Attendance has already been submitted for session $sessionId.';
       });
+      _showFeedback('Attendance has already been submitted for this session.');
       return;
     }
     if (_acousticTokenController.text.trim().isEmpty && _bleNonceController.text.trim().isEmpty) {
       setState(() {
         _statusMessage = 'No signal data from scan. Please scan again.';
       });
+      _showFeedback('No signal data from the last scan. Please scan again.');
       return;
     }
     final studentId = SessionStore.currentIdentity();
@@ -575,6 +608,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       setState(() {
         _statusMessage = 'No authenticated student identity found.';
       });
+      _showFeedback('No authenticated student identity found.');
       return;
     }
     final deviceId = _deviceId ?? await SessionStore.ensureDeviceId();
@@ -615,6 +649,22 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _submittedSessionIds.add(sessionId);
         _scanEligibleForSubmit = false;
       });
+      _showFeedback('Attendance submitted successfully.', success: true);
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Submission Successful'),
+          content: Text(
+            'Your attendance proof for session $sessionId was submitted successfully.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -622,6 +672,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       setState(() {
         _statusMessage = 'Submit failed: $error';
       });
+      _showFeedback('Submit failed: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -687,7 +738,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
   ) {
     return bleDecoded != null &&
         (scan.bleNonce?.trim().isNotEmpty ?? false) &&
-        (scan.source == 'ble_scan_token' || scan.source == 'web_broadcast_cache');
+        (scan.source == 'ble_scan_token' ||
+            scan.source == 'ble_scan_manufacturer_data' ||
+            scan.source == 'ble_scan_service_data' ||
+            scan.source == 'web_broadcast_cache');
   }
 
   Future<void> _runSignalScan() async {
@@ -1088,7 +1142,7 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
                                     '${proof.courseCode ?? 'Session'} ${proof.courseTitle?.isNotEmpty == true ? "- ${proof.courseTitle}" : ""}',
                                   ),
                                   subtitle: Text(
-                                    'Lecturer: ${proof.lecturerName ?? '-'} | Room: ${proof.room ?? '-'}\nStudent: $displayName | Session: ${proof.sessionId}\nRSSI ${proof.rssi} at ${proof.observedAt.toLocal()} | Device: ${SessionStore.displayDeviceId(proof.deviceId)}',
+                                    'Lecturer: ${proof.lecturerName ?? '-'} | Room: ${proof.room ?? '-'}\nStudent: $displayName | Session: ${proof.sessionId}\nFace verification: ${proof.faceVerificationStatus ?? 'pending_review'}\nRSSI ${proof.rssi} at ${proof.observedAt.toLocal()} | Device: ${SessionStore.displayDeviceId(proof.deviceId)}',
                                   ),
                                   isThreeLine: true,
                                 ),
@@ -1590,7 +1644,6 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                             separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (_, index) {
                               final row = _items[index];
-                              final isPass = row.status == 'pass';
                               return Card(
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
@@ -1611,21 +1664,6 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                                       Text(
                                         'Student: ${row.studentName ?? "Unknown"} (${row.studentId})',
                                       ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        isPass ? 'Status: PASS' : 'Status: FAIL',
-                                        style: TextStyle(
-                                          color: isPass ? Colors.green.shade700 : Colors.red.shade700,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Ages: Acoustic ${row.acousticAgeSeconds ?? '-'}s, BLE ${row.bleAgeSeconds ?? '-'}s',
-                                      ),
-                                      for (final p in row.passedChecks)
-                                        Text('PASS: $p', style: TextStyle(color: Colors.green.shade700)),
-                                      for (final f in row.failedChecks)
-                                        Text('FAIL: $f', style: TextStyle(color: Colors.red.shade700)),
                                     ],
                                   ),
                                 ),
@@ -1698,6 +1736,9 @@ class _AccountProfilePage extends StatefulWidget {
 
 class _AccountProfilePageState extends State<_AccountProfilePage> {
   String? _deviceId;
+  final _auth = AuthService();
+  bool _enrollingFace = false;
+  String? _latestEnrolledFaceBase64;
 
   @override
   void initState() {
@@ -1713,6 +1754,46 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
     setState(() {
       _deviceId = deviceId;
     });
+  }
+
+  Future<void> _enrollFaceFromProfile() async {
+    setState(() {
+      _enrollingFace = true;
+    });
+    try {
+      final result = await _captureFaceImage(
+        context,
+        title: 'Complete Face Enrollment',
+        subtitle:
+            'This will capture your enrollment face automatically once the camera sees a centered, well-lit face.',
+      );
+      if (!mounted || result == null) {
+        return;
+      }
+      await _auth.enrollFace(result.base64Image);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _latestEnrolledFaceBase64 = result.base64Image;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Face enrollment saved successfully.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Face enrollment failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _enrollingFace = false;
+        });
+      }
+    }
   }
 
   @override
@@ -1810,6 +1891,130 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _FaceCaptureCard extends StatelessWidget {
+  const _FaceCaptureCard({
+    required this.title,
+    required this.subtitle,
+    required this.imageBase64,
+    required this.busy,
+    required this.actionLabel,
+    required this.onCapture,
+  });
+
+  final String title;
+  final String subtitle;
+  final String? imageBase64;
+  final bool busy;
+  final String actionLabel;
+  final VoidCallback? onCapture;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imageBase64 != null && imageBase64!.isNotEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(subtitle),
+            const SizedBox(height: 12),
+            Center(
+              child: _FacePreviewAvatar(
+                imageBase64: imageBase64,
+                radius: 42,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: busy ? null : onCapture,
+                icon: Icon(hasImage ? Icons.cameraswitch : Icons.camera_alt),
+                label: Text(busy ? 'Opening Camera...' : actionLabel),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FacePreviewTile extends StatelessWidget {
+  const _FacePreviewTile({
+    required this.label,
+    required this.imageBase64,
+  });
+
+  final String label;
+  final String? imageBase64;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          _FacePreviewAvatar(
+            imageBase64: imageBase64,
+            radius: 34,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FacePreviewAvatar extends StatelessWidget {
+  const _FacePreviewAvatar({
+    required this.imageBase64,
+    required this.radius,
+  });
+
+  final String? imageBase64;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final cleaned = imageBase64?.trim() ?? '';
+    if (cleaned.isEmpty) {
+      return CircleAvatar(
+        radius: radius,
+        child: Icon(Icons.face_retouching_natural, size: radius * 0.9),
+      );
+    }
+
+    Uint8List? bytes;
+    try {
+      bytes = base64Decode(cleaned);
+    } catch (_) {
+      bytes = null;
+    }
+
+    if (bytes == null) {
+      return CircleAvatar(
+        radius: radius,
+        child: Icon(Icons.broken_image_outlined, size: radius * 0.9),
+      );
+    }
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundImage: MemoryImage(bytes),
+      backgroundColor: Colors.grey.shade200,
     );
   }
 }
