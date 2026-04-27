@@ -61,12 +61,13 @@ class BleAdvertiser(
         }
 
         stop()
-        val settings =
+        val settingsBuilder =
             AdvertiseSettings.Builder()
                 .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                 .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
                 .setConnectable(false)
-                .build()
+                .setTimeout(0)
+        val settings = settingsBuilder.build()
         val data =
             AdvertiseData.Builder()
                 .setIncludeDeviceName(false)

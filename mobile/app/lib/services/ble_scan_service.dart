@@ -12,10 +12,12 @@ import 'signal_transport_service.dart';
 class BleScanService {
   static const String _serviceUuid = '0000aa91-0000-1000-8000-00805f9b34fb';
   static const int _manufacturerId = 0x0A91;
+  static const Duration _scanWindow = Duration(milliseconds: 2500);
+  static const Duration _betweenWindows = Duration(milliseconds: 180);
   final _transport = SignalTransportService();
 
   Future<ScanResultModel> scanForNonce({
-    Duration timeout = const Duration(seconds: 5),
+    Duration timeout = const Duration(seconds: 10),
   }) async {
     if (kIsWeb) {
       final localBroadcast = LecturerBroadcastService.globalLatest;
@@ -65,11 +67,51 @@ class BleScanService {
         );
       }
 
-      await FlutterBluePlus.stopScan();
-      await FlutterBluePlus.startScan(timeout: timeout);
-      await Future.delayed(timeout);
-      final results = FlutterBluePlus.lastScanResults;
-      await FlutterBluePlus.stopScan();
+      final seen = <String, ScanResult>{};
+      var scanWindows = 0;
+      final startedAt = DateTime.now();
+      final deadline = startedAt.add(timeout);
+
+      while (DateTime.now().isBefore(deadline)) {
+        scanWindows += 1;
+        final remaining = deadline.difference(DateTime.now());
+        final window = remaining < _scanWindow ? remaining : _scanWindow;
+        if (window.inMilliseconds <= 0) {
+          break;
+        }
+
+        await FlutterBluePlus.stopScan();
+        await FlutterBluePlus.startScan(timeout: window);
+        await Future.delayed(window + const Duration(milliseconds: 120));
+        _mergeResults(seen, FlutterBluePlus.lastScanResults);
+        await FlutterBluePlus.stopScan();
+
+        final collected = seen.values.toList()
+          ..sort((a, b) => b.rssi.compareTo(a.rssi));
+        final parsedHit = _findBestLecturerPayload(collected);
+        if (parsedHit != null) {
+          final now = DateTime.now().toUtc();
+          final elapsed = DateTime.now().difference(startedAt).inSeconds;
+          return ScanResultModel(
+            acousticToken: '',
+            observedAt: now,
+            bleNonce: parsedHit.rawToken,
+            rssi: parsedHit.rssi,
+            sessionId: parsedHit.payload.sessionId,
+            issuedAt: parsedHit.payload.issuedAt,
+            source: parsedHit.source,
+            diagnostic:
+                'BLE lecturer broadcast found after ${scanWindows} scan window(s), about ${elapsed}s. ${_rssiQuality(parsedHit.rssi)} ${parsedHit.diagnostic}',
+          );
+        }
+
+        if (DateTime.now().isBefore(deadline)) {
+          await Future.delayed(_betweenWindows);
+        }
+      }
+
+      final results = seen.values.toList()
+        ..sort((a, b) => b.rssi.compareTo(a.rssi));
 
       if (results.isEmpty) {
         return ScanResultModel(
@@ -77,35 +119,25 @@ class BleScanService {
           observedAt: DateTime.now().toUtc(),
           source: 'ble_scan_empty',
           diagnostic:
-              'BLE scan completed but no nearby devices were returned. Check Bluetooth is on, permissions are granted, and lecturer BLE advertising actually started.',
+              'BLE room scan completed but no nearby devices were returned. Check Bluetooth is on, permissions are granted, and lecturer BLE advertising actually started.',
         );
       }
 
-      results.sort((a, b) => b.rssi.compareTo(a.rssi));
       final strongest = results.first;
       final now = DateTime.now().toUtc();
-      final parsedHit = _findBestLecturerPayload(results);
       final advertisedName = strongest.advertisementData.advName.trim();
       final manufacturerData = strongest.advertisementData.manufacturerData;
       final serviceData = strongest.advertisementData.serviceData;
       final scanSummary = _scanSummary(results);
-      final decodedPayload = parsedHit?.payload;
-      final decodedNonce = parsedHit?.rawToken;
-      final source = parsedHit?.source ?? 'ble_scan_unparsed_device';
-      final diagnostic = parsedHit?.diagnostic ??
-          'No lecturer BLE payload parsed. $scanSummary';
 
       return ScanResultModel(
         acousticToken: '',
         observedAt: now,
-        bleNonce: decodedNonce,
+        bleNonce: null,
         rssi: strongest.rssi,
-        sessionId: decodedPayload?.sessionId,
-        issuedAt: decodedPayload?.issuedAt,
-        source: source,
-        diagnostic: decodedNonce != null
-            ? diagnostic
-            : 'Scanned strongest device ${strongest.device.remoteId.str} (name: ${advertisedName.isEmpty ? '-' : advertisedName}, manufacturerData: ${manufacturerData.length}, serviceData: ${serviceData.length}). $scanSummary',
+        source: 'ble_scan_unparsed_device',
+        diagnostic:
+            'Scanned strongest device ${strongest.device.remoteId.str} (name: ${advertisedName.isEmpty ? '-' : advertisedName}, manufacturerData: ${manufacturerData.length}, serviceData: ${serviceData.length}). ${_rssiQuality(strongest.rssi)} $scanSummary',
       );
     } catch (error) {
       try {
@@ -146,6 +178,7 @@ class BleScanService {
           return _ParsedBleHit(
             rawToken: manufacturerPayload,
             payload: parsed,
+            rssi: result.rssi,
             source: 'ble_scan_manufacturer_data',
             diagnostic:
                 'BLE payload parsed from manufacturer advertisement on ${result.device.remoteId.str}.',
@@ -160,6 +193,7 @@ class BleScanService {
           return _ParsedBleHit(
             rawToken: servicePayload,
             payload: parsed,
+            rssi: result.rssi,
             source: 'ble_scan_service_data',
             diagnostic:
                 'BLE payload parsed from service data advertisement on ${result.device.remoteId.str}.',
@@ -174,6 +208,7 @@ class BleScanService {
           return _ParsedBleHit(
             rawToken: advName,
             payload: parsed,
+            rssi: result.rssi,
             source: 'ble_scan_token',
             diagnostic:
                 'BLE payload parsed from advertisement name on ${result.device.remoteId.str}.',
@@ -234,18 +269,43 @@ class BleScanService {
         : manufacturerIds.map((id) => '0x${id.toRadixString(16)}').join(',');
     return 'Seen=${results.length}, named=$namedDeviceCount, manufacturerAds=$manufacturerAdvertisementCount, serviceAds=$serviceAdvertisementCount, strongestRssi=$strongestRssi, manufacturerIds=$ids, expectedManufacturerId=0xa91.';
   }
+
+  void _mergeResults(Map<String, ScanResult> seen, List<ScanResult> results) {
+    for (final result in results) {
+      final key = result.device.remoteId.str;
+      final existing = seen[key];
+      if (existing == null || result.rssi > existing.rssi) {
+        seen[key] = result;
+      }
+    }
+  }
+
+  String _rssiQuality(int rssi) {
+    if (rssi >= -65) {
+      return 'Signal quality: strong.';
+    }
+    if (rssi >= -75) {
+      return 'Signal quality: usable.';
+    }
+    if (rssi >= -85) {
+      return 'Signal quality: weak; distance or obstruction may affect it.';
+    }
+    return 'Signal quality: very weak; move closer or improve lecturer phone placement.';
+  }
 }
 
 class _ParsedBleHit {
   const _ParsedBleHit({
     required this.rawToken,
     required this.payload,
+    required this.rssi,
     required this.source,
     required this.diagnostic,
   });
 
   final String rawToken;
   final BlePayload payload;
+  final int rssi;
   final String source;
   final String diagnostic;
 }
