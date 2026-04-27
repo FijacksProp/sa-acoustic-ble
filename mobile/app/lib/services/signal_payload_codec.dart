@@ -6,6 +6,16 @@ class SignalPayloadCodec {
   static String buildAcousticToken(AcousticPayload payload) {
     final issuedEpoch = payload.issuedAt.toUtc().millisecondsSinceEpoch ~/ 1000;
     return [
+      'ac2',
+      payload.sessionId.toRadixString(36),
+      issuedEpoch.toRadixString(36),
+      payload.challengeToken,
+    ].join('|');
+  }
+
+  static String buildLegacyAcousticToken(AcousticPayload payload) {
+    final issuedEpoch = payload.issuedAt.toUtc().millisecondsSinceEpoch ~/ 1000;
+    return [
       'ac',
       payload.sessionId.toString(),
       payload.tokenVersion,
@@ -26,6 +36,22 @@ class SignalPayloadCodec {
 
   static AcousticPayload? parseAcousticToken(String raw) {
     final parts = raw.split('|');
+    if (parts.length == 4 && parts[0] == 'ac2') {
+      final sessionId = int.tryParse(parts[1], radix: 36);
+      final issuedEpoch = int.tryParse(parts[2], radix: 36);
+      if (sessionId == null || issuedEpoch == null) {
+        return null;
+      }
+      return AcousticPayload(
+        sessionId: sessionId,
+        tokenVersion: 'v2',
+        challengeToken: parts[3],
+        issuedAt: DateTime.fromMillisecondsSinceEpoch(
+          issuedEpoch * 1000,
+          isUtc: true,
+        ),
+      );
+    }
     if (parts.length != 5 || parts[0] != 'ac') {
       return null;
     }

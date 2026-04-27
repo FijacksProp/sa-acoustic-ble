@@ -1,21 +1,57 @@
 import 'package:flutter/services.dart';
 
+class BroadcastNativeStatus {
+  const BroadcastNativeStatus({
+    required this.acousticStatus,
+    required this.bleStatus,
+    required this.acousticPayloadPresent,
+    required this.blePayloadPresent,
+  });
+
+  final String acousticStatus;
+  final String bleStatus;
+  final bool acousticPayloadPresent;
+  final bool blePayloadPresent;
+
+  factory BroadcastNativeStatus.fromMap(Map<String, dynamic>? map) {
+    return BroadcastNativeStatus(
+      acousticStatus: map?['acousticStatus']?.toString() ?? 'acoustic_status_unknown',
+      bleStatus: map?['bleStatus']?.toString() ?? 'ble_status_unknown',
+      acousticPayloadPresent: map?['acousticPayloadPresent'] == true,
+      blePayloadPresent: map?['blePayloadPresent'] == true,
+    );
+  }
+}
+
 class SignalTransportService {
   static const MethodChannel _channel = MethodChannel('sa_acoustic_ble/acoustic');
 
-  Future<void> startBroadcast({
+  Future<BroadcastNativeStatus> startBroadcast({
     required String acousticToken,
     required String bleNonce,
   }) async {
     try {
-      await _channel.invokeMethod<void>('startBroadcast', {
+      final response = await _channel.invokeMethod<Map<Object?, Object?>>('startBroadcast', {
         'acousticToken': acousticToken,
         'bleNonce': bleNonce,
       });
-    } on PlatformException {
-      // No-op fallback for web/unsupported targets.
+      return BroadcastNativeStatus.fromMap(
+        response?.map((key, value) => MapEntry('$key', value)),
+      );
+    } on PlatformException catch (error) {
+      return BroadcastNativeStatus(
+        acousticStatus: 'native_platform_error',
+        bleStatus: error.code,
+        acousticPayloadPresent: acousticToken.trim().isNotEmpty,
+        blePayloadPresent: bleNonce.trim().isNotEmpty,
+      );
     } on MissingPluginException {
-      // No-op fallback for web/unsupported targets.
+      return BroadcastNativeStatus(
+        acousticStatus: 'native_plugin_unavailable',
+        bleStatus: 'native_plugin_unavailable',
+        acousticPayloadPresent: acousticToken.trim().isNotEmpty,
+        blePayloadPresent: bleNonce.trim().isNotEmpty,
+      );
     }
   }
 
@@ -42,6 +78,28 @@ class SignalTransportService {
       return null;
     } on MissingPluginException {
       return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> ensureBleScanReady() async {
+    try {
+      final map = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'ensureBleScanReady',
+      );
+      if (map == null) {
+        return null;
+      }
+      return map.map((key, value) => MapEntry('$key', value));
+    } on PlatformException catch (error) {
+      return {
+        'ready': false,
+        'status': error.code,
+      };
+    } on MissingPluginException {
+      return {
+        'ready': false,
+        'status': 'native_plugin_unavailable',
+      };
     }
   }
 }

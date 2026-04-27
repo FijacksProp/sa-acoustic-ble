@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -5,10 +7,12 @@ import '../models/scan_result_model.dart';
 import '../models/signal_payload_model.dart';
 import 'lecturer_broadcast_service.dart';
 import 'signal_payload_codec.dart';
+import 'signal_transport_service.dart';
 
 class BleScanService {
   static const String _serviceUuid = '0000aa91-0000-1000-8000-00805f9b34fb';
   static const int _manufacturerId = 0x0A91;
+  final _transport = SignalTransportService();
 
   Future<ScanResultModel> scanForNonce({
     Duration timeout = const Duration(seconds: 5),
@@ -37,6 +41,30 @@ class BleScanService {
     }
 
     try {
+      final readiness = await _transport.ensureBleScanReady();
+      if (readiness != null && readiness['ready'] != true) {
+        return ScanResultModel(
+          acousticToken: '',
+          observedAt: DateTime.now().toUtc(),
+          source: 'ble_scan_not_ready',
+          diagnostic:
+              'BLE scan is not ready: ${readiness['status']}. If a permission prompt appeared, allow it and scan again.',
+        );
+      }
+
+      final adapterState = await FlutterBluePlus.adapterState.first.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => BluetoothAdapterState.unknown,
+      );
+      if (adapterState != BluetoothAdapterState.on) {
+        return ScanResultModel(
+          acousticToken: '',
+          observedAt: DateTime.now().toUtc(),
+          source: 'ble_adapter_not_ready',
+          diagnostic: 'Bluetooth adapter is $adapterState. Turn Bluetooth on for both lecturer and student phones.',
+        );
+      }
+
       await FlutterBluePlus.stopScan();
       await FlutterBluePlus.startScan(timeout: timeout);
       await Future.delayed(timeout);
@@ -48,7 +76,8 @@ class BleScanService {
           acousticToken: '',
           observedAt: DateTime.now().toUtc(),
           source: 'ble_scan_empty',
-          diagnostic: 'BLE scan completed but no nearby devices were returned.',
+          diagnostic:
+              'BLE scan completed but no nearby devices were returned. Check Bluetooth is on, permissions are granted, and lecturer BLE advertising actually started.',
         );
       }
 
@@ -59,11 +88,12 @@ class BleScanService {
       final advertisedName = strongest.advertisementData.advName.trim();
       final manufacturerData = strongest.advertisementData.manufacturerData;
       final serviceData = strongest.advertisementData.serviceData;
+      final scanSummary = _scanSummary(results);
       final decodedPayload = parsedHit?.payload;
       final decodedNonce = parsedHit?.rawToken;
       final source = parsedHit?.source ?? 'ble_scan_unparsed_device';
       final diagnostic = parsedHit?.diagnostic ??
-          'Scanned device ${strongest.device.remoteId.str} but no real lecturer nonce was parsed.';
+          'No lecturer BLE payload parsed. $scanSummary';
 
       return ScanResultModel(
         acousticToken: '',
@@ -75,14 +105,19 @@ class BleScanService {
         source: source,
         diagnostic: decodedNonce != null
             ? diagnostic
-            : 'Scanned device ${strongest.device.remoteId.str} (name: ${advertisedName.isEmpty ? '-' : advertisedName}, manufacturerData: ${manufacturerData.length}, serviceData: ${serviceData.length}) but no real lecturer nonce was parsed.',
+            : 'Scanned strongest device ${strongest.device.remoteId.str} (name: ${advertisedName.isEmpty ? '-' : advertisedName}, manufacturerData: ${manufacturerData.length}, serviceData: ${serviceData.length}). $scanSummary',
       );
-    } catch (_) {
+    } catch (error) {
+      try {
+        await FlutterBluePlus.stopScan();
+      } catch (_) {
+      }
       return ScanResultModel(
         acousticToken: '',
         observedAt: DateTime.now().toUtc(),
         source: 'ble_scan_error',
-        diagnostic: 'BLE scan failed before a lecturer nonce could be parsed.',
+        diagnostic:
+            'BLE scan failed before a lecturer nonce could be parsed: ${error.runtimeType}. ${error.toString()}',
       );
     }
   }
@@ -171,6 +206,33 @@ class BleScanService {
         ((bytes[offset + 1] & 0xff) << 16) |
         ((bytes[offset + 2] & 0xff) << 8) |
         (bytes[offset + 3] & 0xff);
+  }
+
+  String _scanSummary(List<ScanResult> results) {
+    final manufacturerIds = <int>{};
+    var manufacturerAdvertisementCount = 0;
+    var serviceAdvertisementCount = 0;
+    var namedDeviceCount = 0;
+    var strongestRssi = -999;
+    for (final result in results) {
+      if (result.rssi > strongestRssi) {
+        strongestRssi = result.rssi;
+      }
+      if (result.advertisementData.advName.trim().isNotEmpty) {
+        namedDeviceCount += 1;
+      }
+      if (result.advertisementData.manufacturerData.isNotEmpty) {
+        manufacturerAdvertisementCount += 1;
+        manufacturerIds.addAll(result.advertisementData.manufacturerData.keys);
+      }
+      if (result.advertisementData.serviceData.isNotEmpty) {
+        serviceAdvertisementCount += 1;
+      }
+    }
+    final ids = manufacturerIds.isEmpty
+        ? '-'
+        : manufacturerIds.map((id) => '0x${id.toRadixString(16)}').join(',');
+    return 'Seen=${results.length}, named=$namedDeviceCount, manufacturerAds=$manufacturerAdvertisementCount, serviceAds=$serviceAdvertisementCount, strongestRssi=$strongestRssi, manufacturerIds=$ids, expectedManufacturerId=0xa91.';
   }
 }
 

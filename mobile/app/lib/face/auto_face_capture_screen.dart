@@ -179,12 +179,12 @@ class _AutoFaceCaptureScreenState extends State<AutoFaceCaptureScreen> {
           brightness: brightness,
         ),
       );
-    } catch (error) {
+    } catch (_) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _error = 'Automatic capture failed: $error';
+        _error = 'Automatic capture could not be completed. Check camera permission and try again.';
       });
     } finally {
       _capturing = false;

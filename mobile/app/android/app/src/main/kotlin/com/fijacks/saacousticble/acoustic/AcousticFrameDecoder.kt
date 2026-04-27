@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlin.math.PI
 import kotlin.math.cos
@@ -29,13 +30,7 @@ class AcousticFrameDecoder(private val context: Context) {
             lastDiagnostics = "audio_record_min_buffer_invalid"
             return null
         }
-        val record = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minBuffer, WINDOW_SAMPLES * 4)
-        )
+        val record = createAudioRecord(minBuffer)
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
             lastDiagnostics = "audio_record_not_initialized"
@@ -108,7 +103,7 @@ class AcousticFrameDecoder(private val context: Context) {
             }
 
             if (!frameStarted) {
-                // Start of frame gate around 18.5 kHz.
+                // Start-of-frame gate in the lower ultrasonic band.
                 if (pStart > p0 * START_RATIO && pStart > p1 * START_RATIO && pStart > pStop * START_RATIO) {
                     frameStarted = true
                     startGuardHits += 1
@@ -117,7 +112,7 @@ class AcousticFrameDecoder(private val context: Context) {
                 continue
             }
 
-            // Stop-of-frame gate around 19.8 kHz.
+            // Stop-of-frame gate above the data tones.
             if (pStop > p0 * STOP_RATIO && pStop > p1 * STOP_RATIO) {
                 stopGuardHits += 1
                 val decoded = decodeBits(bits)
@@ -224,6 +219,39 @@ class AcousticFrameDecoder(private val context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun preferredAudioSource(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            MediaRecorder.AudioSource.UNPROCESSED
+        } else {
+            MediaRecorder.AudioSource.MIC
+        }
+    }
+
+    private fun createAudioRecord(minBuffer: Int): AudioRecord {
+        val bufferSize = maxOf(minBuffer, WINDOW_SAMPLES * 4)
+        try {
+            val preferred = AudioRecord(
+                preferredAudioSource(),
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+            if (preferred.state == AudioRecord.STATE_INITIALIZED) {
+                return preferred
+            }
+            preferred.release()
+        } catch (_: Exception) {
+        }
+        return AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize
+        )
+    }
+
     // Keep only the ultrasonic corridor where the transmitter operates.
     private fun conditionWindow(samples: ShortArray): ShortArray {
         val highPassed = HighPassFilter.process(samples)
@@ -263,26 +291,26 @@ class AcousticFrameDecoder(private val context: Context) {
         private const val SAMPLE_RATE = 44100
         private const val BIT_DURATION_MS = 12
         private val WINDOW_SAMPLES = SAMPLE_RATE * BIT_DURATION_MS / 1000
-        private const val BIT0_FREQUENCY = 19000.0
-        private const val BIT1_FREQUENCY = 19500.0
-        private const val START_GUARD_FREQUENCY = 18500.0
-        private const val STOP_GUARD_FREQUENCY = 19800.0
-        private const val START_RATIO = 1.35
-        private const val STOP_RATIO = 1.35
+        private const val BIT0_FREQUENCY = 18400.0
+        private const val BIT1_FREQUENCY = 18900.0
+        private const val START_GUARD_FREQUENCY = 17800.0
+        private const val STOP_GUARD_FREQUENCY = 19400.0
+        private const val START_RATIO = 1.22
+        private const val STOP_RATIO = 1.22
         private const val PREAMBLE = 0b10101010
         private const val MAX_BITS = 2200
         private const val MIN_FRAME_BITS = 24
         private const val MAX_PREAMBLE_SEARCH_BITS = 64
-        private const val MIN_FILTERED_RMS = 90.0
-        private const val MIN_BIT_DOMINANCE_RATIO = 1.08
+        private const val MIN_FILTERED_RMS = 55.0
+        private const val MIN_BIT_DOMINANCE_RATIO = 1.12
         private val HighPassFilter = BiquadFilter.highPass(
             sampleRate = SAMPLE_RATE.toDouble(),
-            cutoffFrequency = 18_000.0,
+            cutoffFrequency = 17_200.0,
             q = 0.707
         )
         private val LowPassFilter = BiquadFilter.lowPass(
             sampleRate = SAMPLE_RATE.toDouble(),
-            cutoffFrequency = 20_000.0,
+            cutoffFrequency = 19_700.0,
             q = 0.707
         )
     }

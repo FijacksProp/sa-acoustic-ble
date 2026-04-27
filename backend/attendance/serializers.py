@@ -42,6 +42,9 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
     ACOUSTIC_PATTERN = re.compile(
         r"^ac\|(?P<session>\d+)\|(?P<version>[A-Za-z0-9_.-]+)\|(?P<issued>\d{10})\|(?P<challenge>[A-Za-z0-9_]+)$"
     )
+    COMPACT_ACOUSTIC_PATTERN = re.compile(
+        r"^ac2\|(?P<session>[A-Za-z0-9]+)\|(?P<issued>[A-Za-z0-9]+)\|(?P<challenge>[A-Za-z0-9_]+)$"
+    )
     BLE_PATTERN = re.compile(
         r"^ble\|(?P<session>\d+)\|(?P<issued>\d{10})\|(?P<nonce>[A-Za-z0-9_]+)$"
     )
@@ -111,28 +114,37 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         acoustic = attrs["acoustic_token"].strip()
         ble = attrs["ble_nonce"].strip()
         acoustic_match = self.ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
+        compact_acoustic_match = (
+            self.COMPACT_ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
+        )
         ble_match = self.BLE_PATTERN.match(ble) if ble else None
-        if acoustic and not acoustic_match:
+        if acoustic and not acoustic_match and not compact_acoustic_match:
             raise serializers.ValidationError(
                 {"acoustic_token": "Invalid acoustic token format."}
             )
         if ble and not ble_match:
             raise serializers.ValidationError({"ble_nonce": "Invalid BLE nonce format."})
-        if not acoustic_match and not ble_match:
+        if not acoustic_match and not compact_acoustic_match and not ble_match:
             raise serializers.ValidationError(
                 "Provide at least one valid attendance signal: acoustic_token or ble_nonce."
             )
 
         challenge_token = ""
         ble_nonce_value = ""
-        if acoustic_match:
-            ac_session = int(acoustic_match.group("session"))
+        effective_acoustic_match = compact_acoustic_match or acoustic_match
+        if effective_acoustic_match:
+            if compact_acoustic_match:
+                ac_session = int(compact_acoustic_match.group("session"), 36)
+                issued_epoch = int(compact_acoustic_match.group("issued"), 36)
+            else:
+                ac_session = int(acoustic_match.group("session"))
+                issued_epoch = int(acoustic_match.group("issued"))
             if ac_session != session.id:
                 raise serializers.ValidationError(
                     {"session": "Acoustic payload session_id does not match selected session."}
                 )
             ac_issued = datetime.fromtimestamp(
-                int(acoustic_match.group("issued")), tz=dt_timezone.utc
+                issued_epoch, tz=dt_timezone.utc
             )
             if (now - ac_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
                 now - ac_issued
@@ -140,7 +152,7 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"acoustic_token": "Acoustic token has expired."}
                 )
-            challenge_token = acoustic_match.group("challenge")
+            challenge_token = effective_acoustic_match.group("challenge")
 
         if ble_match:
             ble_session = int(ble_match.group("session"))

@@ -1,11 +1,15 @@
+import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'core/session_store.dart';
+import 'core/error_messages.dart';
 import 'face/auto_face_capture_screen.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/scan_result_model.dart';
@@ -40,17 +44,125 @@ Future<AutoFaceCaptureResult?> _captureFaceImage(
   );
 }
 
+String _friendlyAcousticResult(ScanResultModel scan, bool trusted) {
+  if (trusted) {
+    return 'Acoustic signal captured.';
+  }
+  return switch (scan.source) {
+    'microphone_no_decode' => 'No acoustic signal was decoded. Move closer, reduce noise, and scan again.',
+    'platform_exception' => 'Microphone scan could not start. Check microphone permission.',
+    'missing_plugin' => 'Acoustic scanning is only available on the Android app.',
+    'native_no_result' => 'The microphone did not return a scan result.',
+    'web_no_broadcast' => 'No web broadcast is active.',
+    _ => 'Acoustic signal was not captured.',
+  };
+}
+
+String _friendlyBleResult(ScanResultModel scan, bool trusted) {
+  if (trusted) {
+    return 'BLE signal captured.';
+  }
+  return switch (scan.source) {
+    'ble_scan_not_ready' => 'Bluetooth permission is needed. Allow the prompt and scan again.',
+    'ble_adapter_not_ready' => 'Bluetooth is off. Turn it on on both phones and scan again.',
+    'ble_scan_empty' => 'No nearby BLE broadcast was found. Confirm the lecturer broadcast is running.',
+    'ble_scan_unparsed_device' => 'BLE saw nearby devices, but not the lecturer broadcast yet.',
+    'ble_scan_error' => 'BLE scan could not start. Check Bluetooth permissions and try again.',
+    'web_no_ble' => 'Real BLE scanning is only available on Android.',
+    _ => 'BLE signal was not captured.',
+  };
+}
+
 class SaAcousticBleApp extends StatelessWidget {
   const SaAcousticBleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF0B5D7A),
+      brightness: Brightness.light,
+    );
     return MaterialApp(
       title: 'SA Acoustic BLE',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: colorScheme,
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF4F7FB),
+        appBarTheme: AppBarTheme(
+          backgroundColor: colorScheme.surface,
+          foregroundColor: colorScheme.onSurface,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: false,
+          titleTextStyle: TextStyle(
+            color: colorScheme.onSurface,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.2,
+          ),
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          color: Colors.white,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(color: colorScheme.outlineVariant.withOpacity(0.55)),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: colorScheme.outlineVariant),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          height: 64,
+          backgroundColor: Colors.white,
+          indicatorColor: colorScheme.primaryContainer,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          iconTheme: WidgetStateProperty.resolveWith(
+            (states) => IconThemeData(
+              size: states.contains(WidgetState.selected) ? 24 : 22,
+            ),
+          ),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 12,
+              fontWeight: states.contains(WidgetState.selected)
+                  ? FontWeight.w700
+                  : FontWeight.w500,
+            ),
+          ),
+        ),
       ),
       home: const AuthGateScreen(),
     );
@@ -170,8 +282,12 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Login failed. Please check your details and try again.',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login failed: $error')),
+        SnackBar(content: Text(message)),
       );
     } finally {
       if (mounted) {
@@ -205,8 +321,12 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Registration failed. Please check the form and try again.',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Registration failed: $error')),
+        SnackBar(content: Text(message)),
       );
     } finally {
       if (mounted) {
@@ -223,13 +343,33 @@ class _AuthScreenState extends State<AuthScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Sign In'),
-          bottom: const TabBar(tabs: [Tab(text: 'Login'), Tab(text: 'Register')]),
+          toolbarHeight: 0,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(54),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const TabBar(
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                tabs: [
+                  Tab(text: 'Login'),
+                  Tab(text: 'Register'),
+                ],
+              ),
+            ),
+          ),
         ),
         body: TabBarView(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
+            _AuthPane(
+              title: 'Welcome Back',
+              subtitle:
+                  'Sign in to continue your attendance flow and access live session tools.',
+              icon: Icons.verified_user_outlined,
               child: Form(
                 key: _loginForm,
                 child: Column(
@@ -244,19 +384,25 @@ class _AuthScreenState extends State<AuthScreen> {
                       obscure: true,
                     ),
                     const SizedBox(height: 8),
-                    FilledButton(
-                      onPressed: _loading ? null : _login,
-                      child: Text(_loading ? 'Please wait...' : 'Login'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _loading ? null : _login,
+                        child: Text(_loading ? 'Please wait...' : 'Login'),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(16),
+            _AuthPane(
+              title: 'Create Account',
+              subtitle:
+                  'Register as a student or lecturer to join the attendance system securely.',
+              icon: Icons.app_registration_outlined,
               child: Form(
                 key: _registerForm,
-                child: ListView(
+                child: Column(
                   children: [
                     _buildRequiredField(_regNameController, 'Full Name'),
                     if (_role == 'student')
@@ -267,7 +413,6 @@ class _AuthScreenState extends State<AuthScreen> {
                       initialValue: _role,
                       decoration: const InputDecoration(
                         labelText: 'Role',
-                        border: OutlineInputBorder(),
                       ),
                       items: const [
                         DropdownMenuItem(value: 'student', child: Text('Student')),
@@ -289,9 +434,12 @@ class _AuthScreenState extends State<AuthScreen> {
                       obscure: true,
                     ),
                     const SizedBox(height: 8),
-                    FilledButton(
-                      onPressed: _loading ? null : _register,
-                      child: Text(_loading ? 'Please wait...' : 'Register'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _loading ? null : _register,
+                        child: Text(_loading ? 'Please wait...' : 'Register'),
+                      ),
                     ),
                   ],
                 ),
@@ -375,17 +523,39 @@ class _StudentShellState extends State<StudentShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Student'),
+        title: const Text('Student Portal'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(28),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Scan attendance, confirm submissions, and keep your activity in one place.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ),
+        ),
         actions: [
-          IconButton(
-            onPressed: () => widget.onLogout(),
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TextButton.icon(
+              onPressed: () => widget.onLogout(),
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text('Logout'),
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
           ),
         ],
       ),
       body: _pages[_currentIndex],
       bottomNavigationBar: NavigationBar(
+        elevation: 0,
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
           setState(() {
@@ -395,10 +565,10 @@ class _StudentShellState extends State<StudentShell> {
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.wifi_tethering),
-            label: 'Scan Session',
+            label: 'Scan',
           ),
           NavigationDestination(icon: Icon(Icons.history), label: 'History'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: 'Me'),
+          NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
         ],
       ),
     );
@@ -435,12 +605,33 @@ class _LecturerShellState extends State<LecturerShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Lecturer'),
+        title: const Text('Lecturer Portal'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(28),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Run live sessions, broadcast attendance signals, and export clean records fast.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ),
+        ),
         actions: [
-          IconButton(
-            onPressed: () => widget.onLogout(),
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TextButton.icon(
+              onPressed: () => widget.onLogout(),
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text('Logout'),
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -452,6 +643,7 @@ class _LecturerShellState extends State<LecturerShell> {
                   ? _pages[1]
                   : _pages[2],
       bottomNavigationBar: NavigationBar(
+        elevation: 0,
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
           setState(() {
@@ -461,7 +653,7 @@ class _LecturerShellState extends State<LecturerShell> {
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.play_circle_outline),
-            label: 'Start Session',
+            label: 'Session',
           ),
           NavigationDestination(
             icon: Icon(Icons.people_alt_outlined),
@@ -669,10 +861,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Attendance could not be submitted. Please try again.',
+      );
       setState(() {
-        _statusMessage = 'Submit failed: $error';
+        _statusMessage = message;
       });
-      _showFeedback('Submit failed: $error');
+      _showFeedback(message);
     } finally {
       if (mounted) {
         setState(() {
@@ -765,8 +961,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         passed.add('Acoustic payload parsed');
         passed.add('Acoustic evidence came from a trusted broadcast path');
       } else if (!bleTrusted) {
-        failed.add('Acoustic payload parse failed');
-        failed.add('Acoustic source: ${acoustic.source ?? 'unknown'}');
+        failed.add(_friendlyAcousticResult(acoustic, false));
       } else {
         passed.add('Acoustic path was not used for this proof');
       }
@@ -775,8 +970,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         passed.add('BLE payload parsed');
         passed.add('BLE evidence came from a trusted advertisement path');
       } else if (!acousticTrusted) {
-        failed.add('BLE payload parse failed');
-        failed.add('BLE source: ${ble.source ?? 'unknown'}');
+        failed.add(_friendlyBleResult(ble, false));
       } else {
         passed.add('BLE path was not used for this proof');
       }
@@ -799,7 +993,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
           sessionConsistent = true;
           passed.add('Session ID decoded from one signal');
         } else {
-          failed.add('Session ID not decoded');
+          failed.add('No session was decoded from the scan.');
         }
       }
 
@@ -818,7 +1012,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (freshnessPassed) {
         passed.add('Signal freshness within ${SignalPayloadCodec.expirySeconds}s');
       } else {
-        failed.add('Signal freshness failed');
+        failed.add('The captured signal is too old. Please scan again.');
       }
 
       String? proofMode;
@@ -832,7 +1026,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         proofMode = 'ble_only';
         passed.add('Proof path ready: ble_only');
       } else {
-        failed.add('No valid attendance path is ready for submission');
+        failed.add('No valid attendance signal is ready for submission.');
       }
 
       if (decodedSession != null && _submittedSessionIds.contains(decodedSession)) {
@@ -879,9 +1073,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _statusMessage = [
           trustSummary,
           if (proofMode != null) 'Proof path: $proofMode',
-          if ((acoustic.diagnostic ?? '').isNotEmpty)
-            'Acoustic: ${acoustic.diagnostic}',
-          if ((ble.diagnostic ?? '').isNotEmpty) 'BLE: ${ble.diagnostic}',
+          'Acoustic: ${_friendlyAcousticResult(acoustic, acousticTrusted)}',
+          'BLE: ${_friendlyBleResult(ble, bleTrusted)}',
         ].join('\n');
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -897,16 +1090,20 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Signal scan could not be completed. Please try again.',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Signal scan failed: $error')),
+        SnackBar(content: Text(message)),
       );
       setState(() {
-        _failedChecks = ['Signal scan execution failed'];
+        _failedChecks = [message];
         _passedChecks = [];
         _decodedSessionId = null;
         _signalAgeSeconds = null;
         _scanEligibleForSubmit = false;
-        _statusMessage = 'Signal scan execution failed: $error';
+        _statusMessage = message;
       });
     } finally {
       if (mounted) {
@@ -926,29 +1123,36 @@ class _StudentScanPageState extends State<StudentScanPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Signal Scan Submit',
-              style: Theme.of(context).textTheme.titleLarge,
+            _ScreenHeroCard(
+              title: 'Signal Scan Submit',
+              subtitle:
+                  'Use one guided scan to capture the best available attendance signal, review the result, and submit confidently.',
+              icon: Icons.radar_outlined,
             ),
             const SizedBox(height: 12),
-            _InfoRow(
-              label: 'Decoded Session ID',
-              value: _decodedSessionId?.toString() ?? '(run scan to decode)',
+            _MetricsStrip(
+              items: [
+                _MetricItem(
+                  label: 'Session',
+                  value: _decodedSessionId?.toString() ?? '--',
+                ),
+                _MetricItem(
+                  label: 'Signal Age',
+                  value: _signalAgeSeconds == null ? '--' : '${_signalAgeSeconds}s',
+                ),
+                _MetricItem(
+                  label: 'Student',
+                  value: SessionStore.currentIdentity().isEmpty
+                      ? '--'
+                      : SessionStore.currentIdentity(),
+                ),
+                _MetricItem(
+                  label: 'Device',
+                  value: SessionStore.displayDeviceId(_deviceId),
+                ),
+              ],
             ),
-            _InfoRow(
-              label: 'Signal Age',
-              value: _signalAgeSeconds == null ? '-' : '$_signalAgeSeconds s',
-            ),
-            _InfoRow(
-              label: 'Student ID',
-              value: SessionStore.currentIdentity().isEmpty
-                  ? '(not available)'
-                  : SessionStore.currentIdentity(),
-            ),
-            _InfoRow(
-              label: 'Device ID',
-              value: SessionStore.displayDeviceId(_deviceId),
-            ),
+            const SizedBox(height: 14),
             _buildRequiredField(
               _acousticTokenController,
               'Acoustic Token',
@@ -968,18 +1172,28 @@ class _StudentScanPageState extends State<StudentScanPage> {
               readOnly: true,
             ),
             const SizedBox(height: 16),
-            OutlinedButton(
-              onPressed: (_scanning ||
-                      (_decodedSessionId != null &&
-                          _submittedSessionIds.contains(_decodedSessionId)))
-                  ? null
-                  : _runSignalScan,
-              child: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
-            ),
-            const SizedBox(height: 10),
-            FilledButton(
-              onPressed: _submitting ? null : _submitProof,
-              child: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: (_scanning ||
+                            (_decodedSessionId != null &&
+                                _submittedSessionIds.contains(_decodedSessionId)))
+                        ? null
+                        : _runSignalScan,
+                    icon: const Icon(Icons.wifi_tethering_outlined),
+                    label: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _submitting ? null : _submitProof,
+                    icon: const Icon(Icons.verified_outlined),
+                    label: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
+                  ),
+                ),
+              ],
             ),
             if (_passedChecks.isNotEmpty || _failedChecks.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -1000,21 +1214,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
               ),
             ],
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Recent Field-Test Logs',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                TextButton(
-                  onPressed: (_clearingLogs || _scanLogs.isEmpty)
-                      ? null
-                      : _clearScanLogs,
-                  child: Text(_clearingLogs ? 'Clearing...' : 'Clear Logs'),
-                ),
-              ],
+            _SectionTitleBar(
+              title: 'Recent Field-Test Logs',
+              action: TextButton(
+                onPressed: (_clearingLogs || _scanLogs.isEmpty)
+                    ? null
+                    : _clearScanLogs,
+                child: Text(_clearingLogs ? 'Clearing...' : 'Clear Logs'),
+              ),
             ),
             if (_scanLogs.isEmpty)
               const Card(
@@ -1083,7 +1290,10 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
         return;
       }
       setState(() {
-        _error = error.toString();
+        _error = friendlyErrorMessage(
+          error,
+          fallback: 'Attendance history could not be loaded.',
+        );
       });
     } finally {
       if (mounted) {
@@ -1101,13 +1311,17 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Attendance History', style: Theme.of(context).textTheme.titleLarge),
+          _ScreenHeroCard(
+            title: 'Attendance History',
+            subtitle:
+                'Review your submitted attendance records clearly and verify what has already been captured.',
+            icon: Icons.history_edu_outlined,
+          ),
           const SizedBox(height: 10),
           TextField(
             controller: _studentIdController,
             decoration: const InputDecoration(
               labelText: 'Filter by Student ID (optional)',
-              border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 10),
@@ -1253,8 +1467,12 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Session could not be created. Please try again.',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $error')),
+        SnackBar(content: Text(message)),
       );
     } finally {
       if (mounted) {
@@ -1332,9 +1550,11 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Start Session',
-              style: Theme.of(context).textTheme.titleLarge,
+            _ScreenHeroCard(
+              title: 'Start Session',
+              subtitle:
+                  'Create a session, confirm the class details, and begin broadcasting attendance signals with less friction.',
+              icon: Icons.play_circle_outline,
             ),
             const SizedBox(height: 12),
             _buildRequiredField(_courseCodeController, 'Course Code'),
@@ -1343,36 +1563,42 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
             _buildRequiredField(_roomController, 'Room'),
             _buildRequiredField(_tokenVersionController, 'Token Version'),
             const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _submitting ? null : _createSession,
-              child: Text(_submitting ? 'Creating...' : 'Create Session'),
-            ),
-            const SizedBox(height: 10),
-            if (_lastSession != null) ...[
-              OutlinedButton(
-                onPressed: _stopSession,
-                child: const Text('Stop Session'),
-              ),
-              const SizedBox(height: 10),
-            ],
-            OutlinedButton(
-              onPressed: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
-              child: Text(_broadcast.isRunning ? 'Stop Broadcast' : 'Start Broadcast'),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _submitting ? null : _createSession,
+                  icon: const Icon(Icons.add_circle_outline),
+                  label: Text(_submitting ? 'Creating...' : 'Create Session'),
+                ),
+                if (_lastSession != null)
+                  OutlinedButton.icon(
+                    onPressed: _stopSession,
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: const Text('Stop Session'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
+                  icon: Icon(
+                    _broadcast.isRunning
+                        ? Icons.wifi_tethering_off_outlined
+                        : Icons.wifi_tethering_outlined,
+                  ),
+                  label: Text(
+                    _broadcast.isRunning ? 'Stop Broadcast' : 'Start Broadcast',
+                  ),
+                ),
+              ],
             ),
             if (_lastSession != null) ...[
               const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Last session id: ${_lastSession!.id}'),
-                      Text('Course: ${_lastSession!.courseCode}'),
-                      Text('Room: ${_lastSession!.room}'),
-                    ],
-                  ),
-                ),
+              _MetricsStrip(
+                items: [
+                  _MetricItem(label: 'Session ID', value: '${_lastSession!.id}'),
+                  _MetricItem(label: 'Course', value: _lastSession!.courseCode),
+                  _MetricItem(label: 'Room', value: _lastSession!.room),
+                ],
               ),
             ],
             if (_broadcastSnapshot != null) ...[
@@ -1426,7 +1652,10 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
         return;
       }
       setState(() {
-        _error = error.toString();
+        _error = friendlyErrorMessage(
+          error,
+          fallback: 'Live sessions could not be loaded.',
+        );
       });
     } finally {
       if (mounted) {
@@ -1479,8 +1708,12 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Session could not be deleted. Please try again.',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $error')),
+        SnackBar(content: Text(message)),
       );
     }
   }
@@ -1492,7 +1725,12 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Live Sessions', style: Theme.of(context).textTheme.titleLarge),
+          _ScreenHeroCard(
+            title: 'Live Sessions',
+            subtitle:
+                'Switch between active sessions quickly, keep the right one in focus, and tidy up old entries easily.',
+            icon: Icons.groups_2_outlined,
+          ),
           const SizedBox(height: 10),
           FilledButton(
             onPressed: _loadSessions,
@@ -1561,6 +1799,7 @@ class LecturerReportsPage extends StatefulWidget {
 class _LecturerReportsPageState extends State<LecturerReportsPage> {
   final _api = AttendanceApiService();
   bool _loading = true;
+  bool _exporting = false;
   String? _error;
   List<ValidationReportItemModel> _items = [];
   String? _currentSessionId;
@@ -1600,12 +1839,129 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
         return;
       }
       setState(() {
-        _error = error.toString();
+        _error = friendlyErrorMessage(
+          error,
+          fallback: 'Validation report could not be loaded.',
+        );
       });
     } finally {
       if (mounted) {
         setState(() {
           _loading = false;
+        });
+      }
+    }
+  }
+
+  String _detectScanMode(AttendanceProofModel proof) {
+    final hasAcoustic = proof.acousticToken.trim().isNotEmpty;
+    final hasBle = proof.bleNonce.trim().isNotEmpty;
+    if (hasAcoustic && hasBle) {
+      return 'acoustic+ble';
+    }
+    if (hasAcoustic) {
+      return 'acoustic';
+    }
+    if (hasBle) {
+      return 'ble';
+    }
+    return 'unknown';
+  }
+
+  String _csvCell(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  Future<void> _exportCurrentSessionCsv() async {
+    final sessionIdText = _currentSessionId?.trim() ?? '';
+    if (sessionIdText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select or load a current session first.')),
+      );
+      return;
+    }
+
+    final sessionId = int.tryParse(sessionIdText);
+    if (sessionId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Current session id is not valid for export.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _exporting = true;
+    });
+
+    try {
+      final proofs = await _api.listProofs(sessionId: sessionId);
+      if (proofs.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No attendance rows found for this session.')),
+        );
+        return;
+      }
+
+      final buffer = StringBuffer()
+        ..writeln('SN,Student Name,Matric Number,Device ID,Mode of Scan');
+      for (var i = 0; i < proofs.length; i++) {
+        final proof = proofs[i];
+        final studentName = (proof.studentName ?? '').trim().isEmpty
+            ? 'Unknown'
+            : proof.studentName!.trim();
+        buffer.writeln([
+          '${i + 1}',
+          _csvCell(studentName),
+          _csvCell(proof.studentId),
+          _csvCell(proof.deviceId),
+          _csvCell(_detectScanMode(proof)),
+        ].join(','));
+      }
+
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      final file = File(
+        '${directory.path}${Platform.pathSeparator}attendance_report_session_${sessionId}_$timestamp.csv',
+      );
+      await file.writeAsString(buffer.toString());
+
+      if (!mounted) {
+        return;
+      }
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Attendance report for session $sessionId',
+        subject: 'Attendance Report Session $sessionId',
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('CSV exported for session $sessionId.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'CSV export could not be completed.',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _exporting = false;
         });
       }
     }
@@ -1618,7 +1974,12 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Validation Report', style: Theme.of(context).textTheme.titleLarge),
+          _ScreenHeroCard(
+            title: 'Validation Report',
+            subtitle:
+                'See the current session attendance at a glance and export a clean class list instantly.',
+            icon: Icons.analytics_outlined,
+          ),
           const SizedBox(height: 6),
           Text(
             _currentSessionId == null
@@ -1627,9 +1988,22 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 10),
-          FilledButton(
-            onPressed: _loadReport,
-            child: const Text('Refresh Report'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  onPressed: _loading ? null : _loadReport,
+                  child: const Text('Refresh Report'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: (_loading || _exporting) ? null : _exportCurrentSessionCsv,
+                  child: Text(_exporting ? 'Exporting...' : 'Export CSV'),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Expanded(
@@ -1784,8 +2158,12 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
       if (!mounted) {
         return;
       }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Face enrollment could not be saved.',
+      );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Face enrollment failed: $error')),
+        SnackBar(content: Text(message)),
       );
     } finally {
       if (mounted) {
@@ -2028,23 +2406,28 @@ class _ErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Error',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: onRetry,
-              child: const Text('Retry'),
-            ),
-          ],
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 34),
+              const SizedBox(height: 10),
+              Text(
+                'Something went wrong',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2059,10 +2442,15 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.bodyLarge,
-        textAlign: TextAlign.center,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 26),
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.bodyLarge,
+            textAlign: TextAlign.center,
+          ),
+        ),
       ),
     );
   }
@@ -2078,15 +2466,248 @@ class _InfoRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Colors.grey.shade700,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
         ),
-        child: Text(value),
       ),
     );
   }
+}
+
+class _AuthPane extends StatelessWidget {
+  const _AuthPane({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                colorScheme.primary,
+                colorScheme.secondary,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: Colors.white,
+                child: Icon(icon, color: colorScheme.primary),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.white.withOpacity(0.92),
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: child,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScreenHeroCard extends StatelessWidget {
+  const _ScreenHeroCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(26),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Icon(icon, color: colorScheme.primary),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(subtitle),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitleBar extends StatelessWidget {
+  const _SectionTitleBar({
+    required this.title,
+    this.action,
+  });
+
+  final String title;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        ?action,
+      ],
+    );
+  }
+}
+
+class _MetricsStrip extends StatelessWidget {
+  const _MetricsStrip({required this.items});
+
+  final List<_MetricItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 720;
+        final tileWidth = isWide
+            ? (constraints.maxWidth - 30) / 3
+            : (constraints.maxWidth - 10) / 2;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: items
+              .map(
+                (item) => SizedBox(
+                  width: tileWidth,
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.label,
+                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  color: Colors.grey.shade700,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            item.value,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+}
+
+class _MetricItem {
+  const _MetricItem({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
 }
 
 class _ProfileChip extends StatelessWidget {
@@ -2168,6 +2789,46 @@ class _ProfileDetailItem {
   final String value;
 }
 
+class _InlineInfoRows extends StatelessWidget {
+  const _InlineInfoRows({required this.items});
+
+  final List<_ProfileDetailItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  items[i].label,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey.shade700,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  items[i].value,
+                  textAlign: TextAlign.right,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          if (i != items.length - 1) const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+}
+
 class _BroadcastPayloadCard extends StatelessWidget {
   const _BroadcastPayloadCard({required this.snapshot});
 
@@ -2176,7 +2837,6 @@ class _BroadcastPayloadCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final acoustic = snapshot.acousticPayload;
-    final ble = snapshot.blePayload;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -2184,26 +2844,87 @@ class _BroadcastPayloadCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Broadcast Payload (Mock)',
+              'Live Broadcast',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            Text('Acoustic.session_id: ${acoustic.sessionId}'),
-            Text('Acoustic.token_version: ${acoustic.tokenVersion}'),
-            Text('Acoustic.challenge_token: ${acoustic.challengeToken}'),
-            Text('Acoustic.issued_at: ${acoustic.issuedAt.toIso8601String()}'),
-            Text('Acoustic.encoded: ${snapshot.acousticToken}'),
-            const SizedBox(height: 8),
-            Text('BLE.session_id: ${ble.sessionId}'),
-            Text('BLE.ble_nonce: ${ble.bleNonce}'),
-            Text('BLE.issued_at: ${ble.issuedAt.toIso8601String()}'),
-            Text('BLE.encoded: ${snapshot.bleNonce}'),
-            const SizedBox(height: 8),
-            const Text('Expiry window: 60 seconds'),
+            _StatusChip(
+              label: 'Acoustic: ${_friendlyNativeStatus(snapshot.nativeStatus.acousticStatus)}',
+              tone: _ChipTone.success,
+            ),
+            const SizedBox(height: 6),
+            _StatusChip(
+              label: 'BLE: ${_friendlyNativeStatus(snapshot.nativeStatus.bleStatus)}',
+              tone: _bleStatusTone(snapshot.nativeStatus.bleStatus),
+            ),
+            const SizedBox(height: 12),
+            _InlineInfoRows(
+              items: [
+                _ProfileDetailItem(
+                  label: 'Session',
+                  value: '${acoustic.sessionId}',
+                ),
+                _ProfileDetailItem(
+                  label: 'Token Version',
+                  value: acoustic.tokenVersion,
+                ),
+                _ProfileDetailItem(
+                  label: 'Started',
+                  value: acoustic.issuedAt.toLocal().toString(),
+                ),
+                _ProfileDetailItem(
+                  label: 'Refresh Window',
+                  value: '60 seconds',
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
+  }
+
+  _ChipTone _bleStatusTone(String status) {
+    if (status.contains('started') || status.contains('requested')) {
+      return _ChipTone.success;
+    }
+    if (status.contains('pending')) {
+      return _ChipTone.neutral;
+    }
+    return _ChipTone.danger;
+  }
+
+  String _friendlyNativeStatus(String status) {
+    switch (status) {
+      case 'native_broadcast_pending':
+        return 'starting';
+      case 'acoustic_broadcast_started':
+        return 'started';
+      case 'ble_advertising_start_requested':
+        return 'start requested';
+      case 'ble_advertising_started':
+        return 'started';
+      case 'ble_advertising_stopped':
+        return 'stopped';
+      case 'ble_bluetooth_off':
+        return 'Bluetooth is off';
+      case 'ble_advertise_permission_missing':
+        return 'advertise permission missing';
+      case 'ble_connect_permission_missing':
+        return 'connect permission missing';
+      case 'ble_advertising_unsupported':
+        return 'advertising unsupported on this phone';
+      case 'ble_adapter_unavailable':
+      case 'ble_advertiser_unavailable':
+        return 'BLE advertiser unavailable';
+      case 'native_plugin_unavailable':
+        return 'native plugin unavailable';
+      default:
+        if (status.startsWith('ble_advertising_failed_code_')) {
+          return 'failed (${status.replaceFirst('ble_advertising_failed_code_', 'code ')})';
+        }
+        return status.replaceAll('_', ' ');
+    }
   }
 }
 
@@ -2222,26 +2943,56 @@ class _ScanResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final passColor = Colors.green.shade700;
-    final failColor = Colors.red.shade700;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Scan Result',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                const Icon(Icons.fact_check_outlined),
+                const SizedBox(width: 8),
+                Text(
+                  'Scan Result',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
-            Text('Decoded session: ${decodedSessionId ?? '-'}'),
-            Text('Signal age: ${signalAgeSeconds ?? '-'}s'),
-            const SizedBox(height: 8),
-            for (final item in passedChecks)
-              Text('PASS: $item', style: TextStyle(color: passColor)),
-            for (final item in failedChecks)
-              Text('FAIL: $item', style: TextStyle(color: failColor)),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _StatusChip(
+                  label: 'Session ${decodedSessionId ?? '-'}',
+                  tone: _ChipTone.neutral,
+                ),
+                _StatusChip(
+                  label: 'Age ${signalAgeSeconds ?? '-'}s',
+                  tone: _ChipTone.neutral,
+                ),
+              ],
+            ),
+            if (failedChecks.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              for (final item in failedChecks)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _StatusChip(label: item, tone: _ChipTone.danger),
+                ),
+            ] else if (passedChecks.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Scan checks completed successfully.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
           ],
         ),
       ),
@@ -2288,7 +3039,7 @@ class _ScanTestLogCard extends StatelessWidget {
     final statusColor = log.isSuccessful ? Colors.green.shade700 : Colors.red.shade700;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2303,21 +3054,82 @@ class _ScanTestLogCard extends StatelessWidget {
             if (log.trustSummary.isNotEmpty) Text('Trust: ${log.trustSummary}'),
             Text('Time: ${log.recordedAt.toLocal()}'),
             Text('Session: ${log.decodedSessionId ?? '-'} | Age: ${log.signalAgeSeconds ?? '-'}s | RSSI: ${log.rssi ?? '-'}'),
-            Text('Acoustic source: ${log.acousticSource}'),
-            Text('BLE source: ${log.bleSource}'),
-            if (log.acousticDiagnostic.isNotEmpty) Text('Acoustic diag: ${log.acousticDiagnostic}'),
-            if (log.bleDiagnostic.isNotEmpty) Text('BLE diag: ${log.bleDiagnostic}'),
+            Text('Acoustic: ${_friendlyLogAcoustic(log)}'),
+            Text('BLE: ${_friendlyLogBle(log)}'),
             if (log.failedChecks.isNotEmpty) ...[
               const SizedBox(height: 6),
               for (final item in log.failedChecks)
-                Text('FAIL: $item', style: TextStyle(color: Colors.red.shade700)),
-            ],
-            if (log.passedChecks.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              for (final item in log.passedChecks.take(4))
-                Text('PASS: $item', style: TextStyle(color: Colors.green.shade700)),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _StatusChip(label: item, tone: _ChipTone.danger),
+                ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  String _friendlyLogAcoustic(ScanTestLogModel log) {
+    if (log.acousticSource == 'microphone_decode' ||
+        log.acousticSource == 'web_broadcast_cache') {
+      return 'captured';
+    }
+    return 'not captured';
+  }
+
+  String _friendlyLogBle(ScanTestLogModel log) {
+    if (log.bleSource == 'ble_scan_token' ||
+        log.bleSource == 'ble_scan_manufacturer_data' ||
+        log.bleSource == 'ble_scan_service_data' ||
+        log.bleSource == 'web_broadcast_cache') {
+      return 'captured';
+    }
+    if (log.bleSource == 'ble_scan_not_ready') {
+      return 'permission needed';
+    }
+    if (log.bleSource == 'ble_adapter_not_ready') {
+      return 'Bluetooth off';
+    }
+    return 'not captured';
+  }
+}
+
+enum _ChipTone { neutral, success, danger }
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.label,
+    required this.tone,
+  });
+
+  final String label;
+  final _ChipTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final background = switch (tone) {
+      _ChipTone.neutral => colorScheme.surfaceContainerHighest,
+      _ChipTone.success => Colors.green.shade50,
+      _ChipTone.danger => Colors.red.shade50,
+    };
+    final foreground = switch (tone) {
+      _ChipTone.neutral => colorScheme.onSurfaceVariant,
+      _ChipTone.success => Colors.green.shade700,
+      _ChipTone.danger => Colors.red.shade700,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: foreground,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

@@ -59,11 +59,11 @@ class FaceVerificationService {
             ? 'Live face matched the enrolled face strongly enough.'
             : 'Live face did not match the enrolled face strongly enough.',
       );
-    } catch (error) {
+    } catch (_) {
       return FaceVerificationResult(
         score: 0,
         matched: false,
-        reason: 'Face comparison failed: $error',
+        reason: 'Face comparison could not be completed.',
       );
     } finally {
       await detector.close();

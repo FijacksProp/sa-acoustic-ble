@@ -5,14 +5,14 @@ import kotlin.math.sin
 
 object AcousticFrameEncoder {
     private const val sampleRate = 44100
-    private const val bit0Frequency = 19000.0
-    private const val bit1Frequency = 19500.0
-    private const val startGuardFrequency = 18500.0
-    private const val stopGuardFrequency = 19800.0
-    private const val amplitude = 0.28
-    private const val guardDurationMs = 120
-    private const val repeatCount = 3
-    private const val interFrameGapMs = 24
+    private const val bit0Frequency = 18400.0
+    private const val bit1Frequency = 18900.0
+    private const val startGuardFrequency = 17800.0
+    private const val stopGuardFrequency = 19400.0
+    private const val amplitude = 0.42
+    private const val guardDurationMs = 140
+    private const val repeatCount = 5
+    private const val interFrameGapMs = 18
 
     fun encodeFrame(payload: String, bitDurationMs: Int = 12): ShortArray {
         val bytes = payload.toByteArray(Charsets.UTF_8)

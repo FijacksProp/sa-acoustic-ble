@@ -19,6 +19,8 @@ class MainActivity : FlutterActivity() {
     private val logTag = "SaAcousticBle"
     private val requestAudioPermissionCode = 1203
     private val requestBleAdvertisePermissionCode = 1204
+    private val requestBleConnectPermissionCode = 1205
+    private val requestBleScanPermissionCode = 1206
     private var latestAcousticToken: String? = null
     private var latestBleNonce: String? = null
     private val acousticTransmitter = AcousticTransmitter()
@@ -52,9 +54,29 @@ class MainActivity : FlutterActivity() {
                                 )
                                 return@setMethodCallHandler
                             }
+                            if (!hasBleConnectPermission()) {
+                                requestBleConnectPermission()
+                                result.error(
+                                    "BLE_CONNECT_PERMISSION_REQUIRED",
+                                    "Bluetooth connect permission is required to inspect Bluetooth state.",
+                                    null
+                                )
+                                return@setMethodCallHandler
+                            }
                             bleAdvertiser.start(bleNonce)
                         }
-                        result.success(null)
+                        result.success(
+                            mapOf(
+                                "acousticStatus" to if (!acousticToken.isNullOrBlank()) {
+                                    "acoustic_broadcast_started"
+                                } else {
+                                    "acoustic_payload_missing"
+                                },
+                                "bleStatus" to bleAdvertiser.latestStatus(),
+                                "blePayloadPresent" to !bleNonce.isNullOrBlank(),
+                                "acousticPayloadPresent" to !acousticToken.isNullOrBlank()
+                            )
+                        )
                     }
                     "stopBroadcast" -> {
                         acousticTransmitter.stop()
@@ -66,9 +88,19 @@ class MainActivity : FlutterActivity() {
                     "getLatestBroadcast" -> {
                         val payload = mapOf(
                             "acousticToken" to latestAcousticToken,
-                            "bleNonce" to latestBleNonce
+                            "bleNonce" to latestBleNonce,
+                            "bleStatus" to bleAdvertiser.latestStatus()
                         )
                         result.success(payload)
+                    }
+                    "ensureBleScanReady" -> {
+                        val status = ensureBleScanReady()
+                        result.success(
+                            mapOf(
+                                "ready" to (status == "ble_scan_ready"),
+                                "status" to status
+                            )
+                        )
                     }
                     "startAcousticScan" -> {
                         if (!hasRecordAudioPermission()) {
@@ -146,6 +178,69 @@ class MainActivity : FlutterActivity() {
                 this,
                 arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE),
                 requestBleAdvertisePermissionCode
+            )
+        }
+    }
+
+    private fun hasBleConnectPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    private fun requestBleConnectPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                requestBleConnectPermissionCode
+            )
+        }
+    }
+
+    private fun ensureBleScanReady(): String {
+        if (!hasBleScanPermission()) {
+            requestBleScanPermission()
+            return "ble_scan_permission_missing"
+        }
+        if (!hasBleConnectPermission()) {
+            requestBleConnectPermission()
+            return "ble_connect_permission_missing"
+        }
+        return "ble_scan_ready"
+    }
+
+    private fun hasBleScanPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestBleScanPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.BLUETOOTH_SCAN),
+                requestBleScanPermissionCode
+            )
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                requestBleScanPermissionCode
             )
         }
     }

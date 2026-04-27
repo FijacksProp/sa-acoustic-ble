@@ -11,12 +11,26 @@ class BroadcastSnapshot {
     required this.blePayload,
     required this.acousticToken,
     required this.bleNonce,
+    required this.nativeStatus,
   });
 
   final AcousticPayload acousticPayload;
   final BlePayload blePayload;
   final String acousticToken;
   final String bleNonce;
+  final BroadcastNativeStatus nativeStatus;
+
+  BroadcastSnapshot copyWith({
+    BroadcastNativeStatus? nativeStatus,
+  }) {
+    return BroadcastSnapshot(
+      acousticPayload: acousticPayload,
+      blePayload: blePayload,
+      acousticToken: acousticToken,
+      bleNonce: bleNonce,
+      nativeStatus: nativeStatus ?? this.nativeStatus,
+    );
+  }
 }
 
 class LecturerBroadcastService {
@@ -71,7 +85,7 @@ class LecturerBroadcastService {
       return;
     }
     final issuedAt = DateTime.now().toUtc();
-    final challengeToken = _randomToken(prefix: 'ac');
+    final challengeToken = _randomToken(prefix: '', length: 8);
     final bleNonce = _randomToken(prefix: '', length: 8);
 
     _latest = BroadcastSnapshot(
@@ -101,20 +115,32 @@ class LecturerBroadcastService {
           issuedAt: issuedAt,
         ),
       ),
+      nativeStatus: const BroadcastNativeStatus(
+        acousticStatus: 'native_broadcast_pending',
+        bleStatus: 'native_broadcast_pending',
+        acousticPayloadPresent: true,
+        blePayloadPresent: true,
+      ),
     );
     globalLatest = _latest;
     _controller.add(_latest!);
   }
 
-  void _startNativeBroadcast() {
+  Future<void> _startNativeBroadcast() async {
     final snapshot = _latest;
     if (snapshot == null) {
       return;
     }
-    _transport.startBroadcast(
+    final status = await _transport.startBroadcast(
       acousticToken: snapshot.acousticToken,
       bleNonce: snapshot.bleNonce,
     );
+    if (!_running) {
+      return;
+    }
+    _latest = snapshot.copyWith(nativeStatus: status);
+    globalLatest = _latest;
+    _controller.add(_latest!);
   }
 
   String _randomToken({required String prefix, int length = 12}) {

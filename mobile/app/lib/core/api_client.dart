@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
+import 'error_messages.dart';
 import 'session_store.dart';
 
 class ApiClient {
@@ -16,16 +19,18 @@ class ApiClient {
     String path,
     Map<String, dynamic> body,
   ) async {
-    final response = await _client.post(
-      _uri(path),
-      headers: _headers(),
-      body: jsonEncode(body),
+    final response = await _send(
+      _client.post(
+        _uri(path),
+        headers: _headers(),
+        body: jsonEncode(body),
+      ),
     );
     return _decodeResponse(response);
   }
 
   Future<List<dynamic>> getList(String path) async {
-    final response = await _client.get(_uri(path), headers: _headers());
+    final response = await _send(_client.get(_uri(path), headers: _headers()));
     final decoded = _decodeResponse(response);
     if (decoded['results'] is List<dynamic>) {
       return decoded['results'] as List<dynamic>;
@@ -34,12 +39,12 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> getMap(String path) async {
-    final response = await _client.get(_uri(path), headers: _headers());
+    final response = await _send(_client.get(_uri(path), headers: _headers()));
     return _decodeResponse(response);
   }
 
   Future<Map<String, dynamic>> delete(String path) async {
-    final response = await _client.delete(_uri(path), headers: _headers());
+    final response = await _send(_client.delete(_uri(path), headers: _headers()));
     return _decodeResponse(response);
   }
 
@@ -52,6 +57,20 @@ class ApiClient {
     return headers;
   }
 
+  Future<http.Response> _send(Future<http.Response> request) async {
+    try {
+      return await request.timeout(const Duration(seconds: 20));
+    } on TimeoutException catch (error) {
+      throw ApiException(friendlyErrorMessage(error));
+    } on SocketException catch (error) {
+      throw ApiException(friendlyErrorMessage(error));
+    } on http.ClientException catch (error) {
+      throw ApiException(friendlyErrorMessage(error));
+    } on FormatException catch (error) {
+      throw ApiException(friendlyErrorMessage(error));
+    }
+  }
+
   Map<String, dynamic> _decodeResponse(http.Response response) {
     final body = response.body.isEmpty ? '{}' : response.body;
     dynamic decoded;
@@ -60,14 +79,13 @@ class ApiClient {
       decoded = jsonDecode(body);
     } on FormatException {
       if (body.trimLeft().startsWith('<')) {
-        final previewLength = body.length.clamp(0, 300).toInt();
         throw ApiException(
-          'Unexpected HTML response (${response.statusCode}): ${body.substring(0, previewLength)}',
+          'The backend returned an unexpected page. Restart the backend and try again.',
           statusCode: response.statusCode,
         );
       }
       throw ApiException(
-        'Unable to decode JSON response (${response.statusCode}): $body',
+        'The backend returned a response the app could not read.',
         statusCode: response.statusCode,
       );
     }
@@ -83,9 +101,61 @@ class ApiClient {
     }
 
     throw ApiException(
-      'Request failed (${response.statusCode}): $decoded',
+      _friendlyServerError(response.statusCode, decoded),
       statusCode: response.statusCode,
     );
+  }
+
+  String _friendlyServerError(int statusCode, dynamic decoded) {
+    final serverMessage = _extractServerMessage(decoded);
+    if (serverMessage != null && serverMessage.isNotEmpty) {
+      return serverMessage;
+    }
+
+    return switch (statusCode) {
+      400 => 'Please check the form and try again.',
+      401 => 'Your session has expired. Please log in again.',
+      403 => 'You do not have permission to perform this action.',
+      404 => 'The requested record could not be found.',
+      >= 500 => 'The backend had an internal error. Please restart it and try again.',
+      _ => 'Request failed. Please try again.',
+    };
+  }
+
+  String? _extractServerMessage(dynamic decoded) {
+    if (decoded is String) {
+      return decoded;
+    }
+    if (decoded is List && decoded.isNotEmpty) {
+      return _extractServerMessage(decoded.first);
+    }
+    if (decoded is Map) {
+      for (final key in ['detail', 'non_field_errors', 'error', 'message']) {
+        if (decoded.containsKey(key)) {
+          final message = _extractServerMessage(decoded[key]);
+          if (message != null && message.isNotEmpty) {
+            return message;
+          }
+        }
+      }
+      for (final entry in decoded.entries) {
+        final message = _extractServerMessage(entry.value);
+        if (message != null && message.isNotEmpty) {
+          final field = _humanFieldName(entry.key.toString());
+          return '$field: $message';
+        }
+      }
+    }
+    return null;
+  }
+
+  String _humanFieldName(String field) {
+    return field
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
   }
 }
 
