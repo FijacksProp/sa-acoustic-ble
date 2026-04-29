@@ -20,7 +20,6 @@ import 'services/attendance_api_service.dart';
 import 'services/acoustic_scan_service.dart';
 import 'services/ble_scan_service.dart';
 import 'services/auth_service.dart';
-import 'services/face_verification_service.dart';
 import 'services/lecturer_broadcast_service.dart';
 import 'services/scan_test_log_service.dart';
 import 'services/signal_payload_codec.dart';
@@ -73,6 +72,31 @@ String _friendlyBleResult(ScanResultModel scan, bool trusted) {
   };
 }
 
+String _proofScanModeLabel({
+  required String acousticToken,
+  required String bleNonce,
+}) {
+  final hasAcoustic = acousticToken.trim().isNotEmpty;
+  final hasBle = bleNonce.trim().isNotEmpty;
+  if (hasAcoustic && hasBle) {
+    return 'Acoustic + BLE';
+  }
+  if (hasAcoustic) {
+    return 'Acoustic';
+  }
+  if (hasBle) {
+    return 'BLE';
+  }
+  return 'Unknown';
+}
+
+_ChipTone _proofScanModeTone(String mode) {
+  if (mode == 'Unknown') {
+    return _ChipTone.neutral;
+  }
+  return _ChipTone.success;
+}
+
 class SaAcousticBleApp extends StatelessWidget {
   const SaAcousticBleApp({super.key});
 
@@ -89,6 +113,21 @@ class SaAcousticBleApp extends StatelessWidget {
         colorScheme: colorScheme,
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF4F7FB),
+        dividerTheme: DividerThemeData(
+          color: colorScheme.outlineVariant.withOpacity(0.7),
+          thickness: 1,
+          space: 1,
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          contentTextStyle: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         appBarTheme: AppBarTheme(
           backgroundColor: colorScheme.surface,
           foregroundColor: colorScheme.onSurface,
@@ -107,7 +146,7 @@ class SaAcousticBleApp extends StatelessWidget {
           color: Colors.white,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(18),
             side: BorderSide(color: colorScheme.outlineVariant.withOpacity(0.55)),
           ),
         ),
@@ -116,15 +155,15 @@ class SaAcousticBleApp extends StatelessWidget {
           fillColor: Colors.white,
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: colorScheme.outlineVariant),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: colorScheme.outlineVariant),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
           ),
         ),
@@ -132,7 +171,7 @@ class SaAcousticBleApp extends StatelessWidget {
           style: FilledButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
         ),
@@ -140,12 +179,12 @@ class SaAcousticBleApp extends StatelessWidget {
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
         ),
         navigationBarTheme: NavigationBarThemeData(
-          height: 64,
+          height: 60,
           backgroundColor: Colors.white,
           indicatorColor: colorScheme.primaryContainer,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
@@ -531,7 +570,7 @@ class _StudentShellState extends State<StudentShell> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Scan attendance, confirm submissions, and keep your activity in one place.',
+                'Capture a verified room signal, submit once, and track your attendance cleanly.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
@@ -540,16 +579,7 @@ class _StudentShellState extends State<StudentShell> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: () => widget.onLogout(),
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text('Logout'),
-              style: TextButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
+            child: _LogoutButton(onPressed: () => widget.onLogout()),
           ),
         ],
       ),
@@ -613,7 +643,7 @@ class _LecturerShellState extends State<LecturerShell> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Run live sessions, broadcast attendance signals, and export clean records fast.',
+                'Create live sessions, broadcast proximity signals, and export attendance records.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
@@ -622,16 +652,7 @@ class _LecturerShellState extends State<LecturerShell> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: () => widget.onLogout(),
-              icon: const Icon(Icons.logout, size: 18),
-              label: const Text('Logout'),
-              style: TextButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
+            child: _LogoutButton(onPressed: () => widget.onLogout()),
           ),
         ],
       ),
@@ -1206,11 +1227,19 @@ class _StudentScanPageState extends State<StudentScanPage> {
             ],
             if (_statusMessage != null) ...[
               const SizedBox(height: 12),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(_statusMessage!),
-                ),
+              _GuidanceCard(
+                icon: _scanEligibleForSubmit
+                    ? Icons.check_circle_outline
+                    : Icons.info_outline,
+                title: _scanEligibleForSubmit
+                    ? 'Ready for Submission'
+                    : 'Scan Guidance',
+                message: _statusMessage!,
+                tone: _scanEligibleForSubmit
+                    ? _ChipTone.success
+                    : _failedChecks.isNotEmpty
+                        ? _ChipTone.danger
+                        : _ChipTone.neutral,
               ),
             ],
             const SizedBox(height: 12),
@@ -1233,7 +1262,12 @@ class _StudentScanPageState extends State<StudentScanPage> {
                 ),
               )
             else
-              ..._scanLogs.map((log) => _ScanTestLogCard(log: log)),
+              ..._scanLogs.map(
+                (log) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _ScanTestLogCard(log: log),
+                ),
+              ),
           ],
         ),
       ),
@@ -1344,21 +1378,105 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
                           )
                         : ListView.separated(
                             itemCount: _proofs.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 8),
+                            separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (context, index) {
                               final proof = _proofs[index];
                               final displayName = proof.studentName?.isNotEmpty == true
                                   ? '${proof.studentName} (${proof.studentId})'
                                   : proof.studentId;
+                              final mode = _proofScanModeLabel(
+                                acousticToken: proof.acousticToken,
+                                bleNonce: proof.bleNonce,
+                              );
                               return Card(
-                                child: ListTile(
-                                  title: Text(
-                                    '${proof.courseCode ?? 'Session'} ${proof.courseTitle?.isNotEmpty == true ? "- ${proof.courseTitle}" : ""}',
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(10),
+                                            decoration: BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primaryContainer,
+                                              borderRadius: BorderRadius.circular(14),
+                                            ),
+                                            child: Icon(
+                                              Icons.verified_outlined,
+                                              color: Theme.of(context).colorScheme.primary,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  '${proof.courseCode ?? 'Session'}${proof.courseTitle?.isNotEmpty == true ? " - ${proof.courseTitle}" : ""}',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .titleMedium
+                                                      ?.copyWith(
+                                                        fontWeight: FontWeight.w800,
+                                                      ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  'Submitted ${proof.observedAt.toLocal()}',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: Colors.grey.shade700,
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          _StatusChip(
+                                            label: mode,
+                                            tone: _proofScanModeTone(mode),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 14),
+                                      _InlineInfoRows(
+                                        items: [
+                                          _ProfileDetailItem(
+                                            label: 'Student',
+                                            value: displayName,
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Lecturer',
+                                            value: proof.lecturerName ?? '-',
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Room',
+                                            value: proof.room ?? '-',
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Session',
+                                            value: '${proof.sessionId}',
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'RSSI',
+                                            value: '${proof.rssi}',
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Device',
+                                            value: SessionStore.displayDeviceId(
+                                              proof.deviceId,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
-                                  subtitle: Text(
-                                    'Lecturer: ${proof.lecturerName ?? '-'} | Room: ${proof.room ?? '-'}\nStudent: $displayName | Session: ${proof.sessionId}\nFace verification: ${proof.faceVerificationStatus ?? 'pending_review'}\nRSSI ${proof.rssi} at ${proof.observedAt.toLocal()} | Device: ${SessionStore.displayDeviceId(proof.deviceId)}',
-                                  ),
-                                  isThreeLine: true,
                                 ),
                               );
                             },
@@ -1749,35 +1867,93 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                         ? const _EmptyState(title: 'No sessions available.')
                         : ListView.separated(
                             itemCount: _sessions.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 8),
+                            separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (context, index) {
                               final session = _sessions[index];
                               return Card(
-                                child: ListTile(
-                                  onTap: () => widget.onLoadSession(session.id.toString()),
-                                  title: Text(
-                                    '${session.courseCode} - ${session.courseTitle}',
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(18),
+                                  onTap: () => widget.onLoadSession(
+                                    session.id.toString(),
                                   ),
-                                  subtitle: Text(
-                                    'Room ${session.room} | ${session.startsAt.toLocal()}',
-                                  ),
-                                  trailing: session.active
-                                      ? Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Chip(label: Text('Active')),
-                                            IconButton(
-                                              onPressed: () => _deleteSession(session),
-                                              icon: const Icon(Icons.delete_outline),
-                                              tooltip: 'Delete session',
-                                            ),
-                                          ],
-                                        )
-                                      : IconButton(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(14),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: session.active
+                                                ? Colors.green.shade50
+                                                : Theme.of(context)
+                                                    .colorScheme
+                                                    .surfaceContainerHighest,
+                                            borderRadius: BorderRadius.circular(14),
+                                          ),
+                                          child: Icon(
+                                            session.active
+                                                ? Icons.radio_button_checked
+                                                : Icons.event_note_outlined,
+                                            color: session.active
+                                                ? Colors.green.shade700
+                                                : Theme.of(context)
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      '${session.courseCode} - ${session.courseTitle}',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .titleMedium
+                                                          ?.copyWith(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  if (session.active)
+                                                    const _StatusChip(
+                                                      label: 'Active',
+                                                      tone: _ChipTone.success,
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              _InlineInfoRows(
+                                                items: [
+                                                  _ProfileDetailItem(
+                                                    label: 'Room',
+                                                    value: session.room,
+                                                  ),
+                                                  _ProfileDetailItem(
+                                                    label: 'Started',
+                                                    value:
+                                                        '${session.startsAt.toLocal()}',
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
                                           onPressed: () => _deleteSession(session),
                                           icon: const Icon(Icons.delete_outline),
                                           tooltip: 'Delete session',
                                         ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               );
                             },
@@ -1854,18 +2030,10 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
   }
 
   String _detectScanMode(AttendanceProofModel proof) {
-    final hasAcoustic = proof.acousticToken.trim().isNotEmpty;
-    final hasBle = proof.bleNonce.trim().isNotEmpty;
-    if (hasAcoustic && hasBle) {
-      return 'acoustic+ble';
-    }
-    if (hasAcoustic) {
-      return 'acoustic';
-    }
-    if (hasBle) {
-      return 'ble';
-    }
-    return 'unknown';
+    return _proofScanModeLabel(
+      acousticToken: proof.acousticToken,
+      bleNonce: proof.bleNonce,
+    );
   }
 
   String _csvCell(String value) {
@@ -2015,28 +2183,76 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                         ? const _EmptyState(title: 'No validation report rows for the current session.')
                         : ListView.separated(
                             itemCount: _items.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 8),
+                            separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (_, index) {
                               final row = _items[index];
+                              final courseLabel =
+                                  '${row.courseCode ?? ''}${(row.courseTitle ?? '').isNotEmpty ? " - ${row.courseTitle}" : ""}'
+                                      .trim();
                               return Card(
                                 child: Padding(
-                                  padding: const EdgeInsets.all(12),
+                                  padding: const EdgeInsets.all(14),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        'Proof ${row.proofId} | Session ${row.sessionId}',
+                                      Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 18,
+                                            backgroundColor: Theme.of(context)
+                                                .colorScheme
+                                                .primaryContainer,
+                                            child: Text(
+                                              '${index + 1}',
+                                              style: TextStyle(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              row.studentName ?? 'Unknown Student',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                      if ((row.courseCode ?? '').isNotEmpty || (row.courseTitle ?? '').isNotEmpty)
-                                        Text(
-                                          '${row.courseCode ?? ''}${(row.courseTitle ?? '').isNotEmpty ? " - ${row.courseTitle}" : ""}',
-                                        ),
-                                      if ((row.lecturerName ?? '').isNotEmpty || (row.room ?? '').isNotEmpty)
-                                        Text(
-                                          'Lecturer: ${row.lecturerName ?? '-'} | Room: ${row.room ?? '-'}',
-                                        ),
-                                      Text(
-                                        'Student: ${row.studentName ?? "Unknown"} (${row.studentId})',
+                                      const SizedBox(height: 12),
+                                      _InlineInfoRows(
+                                        items: [
+                                          _ProfileDetailItem(
+                                            label: 'Matric Number',
+                                            value: row.studentId,
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Course',
+                                            value: courseLabel.isEmpty
+                                                ? '-'
+                                                : courseLabel,
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Lecturer',
+                                            value: row.lecturerName ?? '-',
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Room',
+                                            value: row.room ?? '-',
+                                          ),
+                                          _ProfileDetailItem(
+                                            label: 'Proof',
+                                            value:
+                                                '#${row.proofId} / Session ${row.sessionId}',
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
@@ -2089,6 +2305,32 @@ class _PlaceholderPage extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LogoutButton extends StatelessWidget {
+  const _LogoutButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.logout, size: 17),
+      label: const Text('Logout'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: colorScheme.onSurface,
+        backgroundColor: colorScheme.surface,
+        side: BorderSide(color: colorScheme.outlineVariant),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(999),
         ),
       ),
     );
@@ -2517,13 +2759,21 @@ class _AuthPane extends StatelessWidget {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
+                const Color(0xFF073B4C),
                 colorScheme.primary,
-                colorScheme.secondary,
+                const Color(0xFF118AB2),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.primary.withOpacity(0.16),
+                blurRadius: 28,
+                offset: const Offset(0, 14),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2580,8 +2830,18 @@ class _ScreenHeroCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(26),
+        gradient: LinearGradient(
+          colors: [
+            colorScheme.primaryContainer.withOpacity(0.95),
+            Colors.white,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withOpacity(0.65),
+        ),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2590,7 +2850,14 @@ class _ScreenHeroCard extends StatelessWidget {
             padding: const EdgeInsets.all(11),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(15),
+              boxShadow: [
+                BoxShadow(
+                  color: colorScheme.primary.withOpacity(0.12),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child: Icon(icon, color: colorScheme.primary),
           ),
@@ -2602,7 +2869,8 @@ class _ScreenHeroCard extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
                       ),
                 ),
                 const SizedBox(height: 6),
@@ -2663,32 +2931,43 @@ class _MetricsStrip extends StatelessWidget {
               .map(
                 (item) => SizedBox(
                   width: tileWidth,
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 13,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outlineVariant
+                            .withOpacity(0.65),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.label,
-                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                  color: Colors.grey.shade700,
-                                ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            item.value,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ],
-                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.label.toUpperCase(),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Colors.grey.shade700,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          item.value,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.1,
+                              ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -2740,7 +3019,7 @@ class _ProfileDetailCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           children: [
             for (var i = 0; i < items.length; i++) ...[
@@ -2751,8 +3030,9 @@ class _ProfileDetailCard extends StatelessWidget {
                     flex: 2,
                     child: Text(
                       items[i].label,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                   ),
@@ -2763,7 +3043,7 @@ class _ProfileDetailCard extends StatelessWidget {
                       items[i].value,
                       textAlign: TextAlign.right,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                           ),
                     ),
                   ),
@@ -2805,8 +3085,9 @@ class _InlineInfoRows extends StatelessWidget {
               Expanded(
                 child: Text(
                   items[i].label,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
@@ -2829,6 +3110,72 @@ class _InlineInfoRows extends StatelessWidget {
   }
 }
 
+class _GuidanceCard extends StatelessWidget {
+  const _GuidanceCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.tone,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final _ChipTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final background = switch (tone) {
+      _ChipTone.success => Colors.green.shade50,
+      _ChipTone.danger => Colors.red.shade50,
+      _ChipTone.neutral => colorScheme.surfaceContainerHighest,
+    };
+    final foreground = switch (tone) {
+      _ChipTone.success => Colors.green.shade700,
+      _ChipTone.danger => Colors.red.shade700,
+      _ChipTone.neutral => colorScheme.onSurfaceVariant,
+    };
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: background,
+        border: Border.all(color: foreground.withOpacity(0.18)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: foreground),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        height: 1.35,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BroadcastPayloadCard extends StatelessWidget {
   const _BroadcastPayloadCard({required this.snapshot});
 
@@ -2839,23 +3186,37 @@ class _BroadcastPayloadCard extends StatelessWidget {
     final acoustic = snapshot.acousticPayload;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Live Broadcast',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                const Icon(Icons.sensors_outlined),
+                const SizedBox(width: 8),
+                Text(
+                  'Live Broadcast',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            _StatusChip(
-              label: 'Acoustic: ${_friendlyNativeStatus(snapshot.nativeStatus.acousticStatus)}',
-              tone: _ChipTone.success,
-            ),
-            const SizedBox(height: 6),
-            _StatusChip(
-              label: 'BLE: ${_friendlyNativeStatus(snapshot.nativeStatus.bleStatus)}',
-              tone: _bleStatusTone(snapshot.nativeStatus.bleStatus),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _StatusChip(
+                  label:
+                      'Acoustic: ${_friendlyNativeStatus(snapshot.nativeStatus.acousticStatus)}',
+                  tone: _ChipTone.success,
+                ),
+                _StatusChip(
+                  label: 'BLE: ${_friendlyNativeStatus(snapshot.nativeStatus.bleStatus)}',
+                  tone: _bleStatusTone(snapshot.nativeStatus.bleStatus),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             _InlineInfoRows(
@@ -2951,12 +3312,19 @@ class _ScanResultCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.fact_check_outlined),
+                Icon(
+                  failedChecks.isEmpty
+                      ? Icons.verified_outlined
+                      : Icons.report_problem_outlined,
+                  color: failedChecks.isEmpty
+                      ? Colors.green.shade700
+                      : Colors.red.shade700,
+                ),
                 const SizedBox(width: 8),
                 Text(
-                  'Scan Result',
+                  failedChecks.isEmpty ? 'Signal Accepted' : 'Scan Needs Attention',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w800,
                       ),
                 ),
               ],
@@ -3043,21 +3411,72 @@ class _ScanTestLogCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              log.isSuccessful ? 'PASS' : 'ISSUES FOUND',
-              style: TextStyle(
-                color: statusColor,
-                fontWeight: FontWeight.w700,
-              ),
+            Row(
+              children: [
+                Icon(
+                  log.isSuccessful
+                      ? Icons.check_circle_outline
+                      : Icons.troubleshoot_outlined,
+                  color: statusColor,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    log.isSuccessful ? 'Reliable scan captured' : 'Signal not ready',
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
-            if (log.trustSummary.isNotEmpty) Text('Trust: ${log.trustSummary}'),
-            Text('Time: ${log.recordedAt.toLocal()}'),
-            Text('Session: ${log.decodedSessionId ?? '-'} | Age: ${log.signalAgeSeconds ?? '-'}s | RSSI: ${log.rssi ?? '-'}'),
-            Text('Acoustic: ${_friendlyLogAcoustic(log)}'),
-            Text('BLE: ${_friendlyLogBle(log)}'),
+            const SizedBox(height: 10),
+            if (log.trustSummary.isNotEmpty)
+              Text(
+                log.trustSummary,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _StatusChip(
+                  label: 'Session ${log.decodedSessionId ?? '-'}',
+                  tone: _ChipTone.neutral,
+                ),
+                _StatusChip(
+                  label: 'Age ${log.signalAgeSeconds ?? '-'}s',
+                  tone: _ChipTone.neutral,
+                ),
+                _StatusChip(
+                  label: 'RSSI ${log.rssi ?? '-'}',
+                  tone: _ChipTone.neutral,
+                ),
+                _StatusChip(
+                  label: 'Acoustic ${_friendlyLogAcoustic(log)}',
+                  tone: _friendlyLogAcoustic(log) == 'captured'
+                      ? _ChipTone.success
+                      : _ChipTone.neutral,
+                ),
+                _StatusChip(
+                  label: 'BLE ${_friendlyLogBle(log)}',
+                  tone: _friendlyLogBle(log) == 'captured'
+                      ? _ChipTone.success
+                      : _ChipTone.neutral,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Recorded ${log.recordedAt.toLocal()}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey.shade700,
+                  ),
+            ),
             if (log.failedChecks.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
               for (final item in log.failedChecks)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),

@@ -101,7 +101,7 @@ class BleScanService {
             issuedAt: parsedHit.payload.issuedAt,
             source: parsedHit.source,
             diagnostic:
-                'BLE lecturer broadcast found after ${scanWindows} scan window(s), about ${elapsed}s. ${_rssiQuality(parsedHit.rssi)} ${parsedHit.diagnostic}',
+                'BLE lecturer broadcast found after $scanWindows scan window(s), about ${elapsed}s. ${_rssiQuality(parsedHit.rssi)} ${parsedHit.diagnostic}',
           );
         }
 
