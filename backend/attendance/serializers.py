@@ -69,6 +69,8 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "lecturer_name",
             "room",
             "device_id",
+            "device_trust_status",
+            "device_trust_detail",
             "acoustic_token",
             "ble_nonce",
             "rssi",
@@ -79,7 +81,12 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "face_match_score",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "device_trust_status",
+            "device_trust_detail",
+        ]
         extra_kwargs = {
             "acoustic_token": {"allow_blank": True},
             "ble_nonce": {"allow_blank": True},
@@ -266,11 +273,13 @@ class RegisterSerializer(serializers.Serializer):
     role = serializers.ChoiceField(choices=UserProfile.ROLE_CHOICES)
     password = serializers.CharField(write_only=True, min_length=6)
     face_image_base64 = serializers.CharField(required=False, allow_blank=True)
+    device_id = serializers.CharField(max_length=128, required=False, allow_blank=True)
 
     def validate(self, attrs):
         role = attrs["role"]
         matric_number = attrs.get("matric_number", "").strip()
         username = attrs.get("username", "").strip()
+        device_id = attrs.get("device_id", "").strip()
 
         if role == UserProfile.ROLE_STUDENT:
             if not matric_number:
@@ -280,6 +289,17 @@ class RegisterSerializer(serializers.Serializer):
             if UserProfile.objects.filter(matric_number=matric_number).exists():
                 raise serializers.ValidationError(
                     {"matric_number": "matric_number already registered."}
+                )
+            if device_id and UserProfile.objects.filter(
+                role=UserProfile.ROLE_STUDENT,
+                registered_device_id=device_id,
+            ).exists():
+                raise serializers.ValidationError(
+                    {
+                        "device_id": (
+                            "This phone is already linked to another student account."
+                        )
+                    }
                 )
             attrs["username"] = matric_number
             attrs["matric_number"] = matric_number
@@ -304,6 +324,7 @@ class RegisterSerializer(serializers.Serializer):
         role = validated_data["role"]
         password = validated_data["password"]
         face_image_base64 = validated_data.get("face_image_base64", "").strip()
+        device_id = validated_data.get("device_id", "").strip()
 
         user = User.objects.create_user(
             username=username,
@@ -315,6 +336,14 @@ class RegisterSerializer(serializers.Serializer):
             matric_number=matric_number,
             role=role,
             face_image_base64=face_image_base64,
+            registered_device_id=(
+                device_id if role == UserProfile.ROLE_STUDENT else ""
+            ),
+            registered_device_at=(
+                timezone.now()
+                if role == UserProfile.ROLE_STUDENT and device_id
+                else None
+            ),
         )
         token, _ = Token.objects.get_or_create(user=user)
         return {
@@ -324,12 +353,14 @@ class RegisterSerializer(serializers.Serializer):
             "role": profile.role,
             "full_name": user.first_name,
             "has_face_enrollment": bool(profile.face_image_base64),
+            "registered_device_id": profile.registered_device_id,
         }
 
 
 class LoginSerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=150)
     password = serializers.CharField(write_only=True)
+    device_id = serializers.CharField(max_length=128, required=False, allow_blank=True)
 
     def validate(self, attrs):
         identifier = attrs["identifier"].strip()
@@ -337,12 +368,43 @@ class LoginSerializer(serializers.Serializer):
         user = authenticate(username=identifier, password=password)
         if not user:
             raise serializers.ValidationError("Invalid credentials.")
+        device_id = attrs.get("device_id", "").strip()
+        profile = user.profile
+        if profile.role == UserProfile.ROLE_STUDENT and device_id:
+            conflicting = (
+                UserProfile.objects.filter(
+                    role=UserProfile.ROLE_STUDENT,
+                    registered_device_id=device_id,
+                )
+                .exclude(pk=profile.pk)
+                .exists()
+            )
+            if conflicting:
+                raise serializers.ValidationError(
+                    "This phone is already linked to another student account."
+                )
+            if profile.registered_device_id and profile.registered_device_id != device_id:
+                raise serializers.ValidationError(
+                    "This student account is already linked to another phone."
+                )
+            attrs["device_id"] = device_id
         attrs["user"] = user
         return attrs
 
     def create(self, validated_data):
         user = validated_data["user"]
         profile = user.profile
+        device_id = validated_data.get("device_id", "").strip()
+        if (
+            profile.role == UserProfile.ROLE_STUDENT
+            and device_id
+            and not profile.registered_device_id
+        ):
+            profile.registered_device_id = device_id
+            profile.registered_device_at = timezone.now()
+            profile.save(
+                update_fields=["registered_device_id", "registered_device_at"]
+            )
         token, _ = Token.objects.get_or_create(user=user)
         return {
             "token": token.key,
@@ -351,4 +413,5 @@ class LoginSerializer(serializers.Serializer):
             "role": profile.role,
             "full_name": user.first_name,
             "has_face_enrollment": bool(profile.face_image_base64),
+            "registered_device_id": profile.registered_device_id,
         }

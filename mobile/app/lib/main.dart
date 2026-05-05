@@ -858,10 +858,17 @@ class _StudentScanPageState extends State<StudentScanPage> {
         return;
       }
       setState(() {
-        _statusMessage = 'Attendance proof submitted (id: ${created.id ?? '-'})';
+        _statusMessage = [
+          'Attendance proof submitted (id: ${created.id ?? '-'})',
+          if ((created.deviceTrustDetail ?? '').isNotEmpty)
+            created.deviceTrustDetail!,
+        ].join('\n');
         _submittedSessionIds.add(sessionId);
         _scanEligibleForSubmit = false;
       });
+      if (created.deviceTrustStatus == 'bound_on_submit') {
+        await SessionStore.setRegisteredDeviceId(deviceId);
+      }
       _showFeedback('Attendance submitted successfully.', success: true);
       await showDialog<void>(
         context: context,
@@ -2364,6 +2371,14 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
 
   Future<void> _loadDeviceId() async {
     final deviceId = await SessionStore.ensureDeviceId();
+    try {
+      final profile = await _auth.getCurrentProfile();
+      await SessionStore.setRegisteredDeviceId(
+        profile['registered_device_id']?.toString() ?? '',
+      );
+    } catch (_) {
+      // Profile details remain useful even when the backend is temporarily offline.
+    }
     if (!mounted) {
       return;
     }
@@ -2502,6 +2517,12 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
               _ProfileDetailItem(
                 label: 'Readable Device ID',
                 value: SessionStore.displayDeviceId(_deviceId),
+              ),
+              _ProfileDetailItem(
+                label: 'Registered Device',
+                value: SessionStore.displayDeviceId(
+                  SessionStore.registeredDeviceId,
+                ),
               ),
               _ProfileDetailItem(
                 label: 'Stored Device ID',

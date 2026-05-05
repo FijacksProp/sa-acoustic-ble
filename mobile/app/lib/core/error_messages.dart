@@ -35,6 +35,19 @@ String friendlyErrorMessage(
     return 'This account already exists. Try logging in instead.';
   }
 
+  if (lower.contains('already linked to another student account')) {
+    return 'This phone is already linked to another student account.';
+  }
+
+  if (lower.contains('already linked to another phone')) {
+    return 'This account is already linked to another phone.';
+  }
+
+  if (lower.contains('use the registered phone') ||
+      lower.contains('request a device reset')) {
+    return 'Use the registered phone for this account, or request a device reset.';
+  }
+
   if (lower.contains('permission')) {
     return 'A required permission is missing. Allow the permission and try again.';
   }
@@ -66,4 +79,3 @@ String friendlyErrorMessage(
   }
   return message;
 }
-

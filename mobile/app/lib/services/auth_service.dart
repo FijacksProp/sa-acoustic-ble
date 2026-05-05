@@ -14,10 +14,12 @@ class AuthService {
     required String password,
     String? faceImageBase64,
   }) async {
+    final deviceId = await SessionStore.ensureDeviceId();
     final payload = <String, dynamic>{
       'full_name': fullName,
       'role': role,
       'password': password,
+      'device_id': deviceId,
     };
     if (matricNumber != null && matricNumber.trim().isNotEmpty) {
       payload['matric_number'] = matricNumber.trim();
@@ -38,9 +40,11 @@ class AuthService {
     required String identifier,
     required String password,
   }) async {
+    final deviceId = await SessionStore.ensureDeviceId();
     final response = await _client.postJson('/api/auth/login/', {
       'identifier': identifier,
       'password': password,
+      'device_id': deviceId,
     });
     await _storeAuth(response);
     return response;
@@ -54,6 +58,9 @@ class AuthService {
     final response = await _client.getMap('/api/auth/me/');
     await SessionStore.setHasFaceEnrollment(
       response['has_face_enrollment'] == true,
+    );
+    await SessionStore.setRegisteredDeviceId(
+      response['registered_device_id']?.toString() ?? '',
     );
     return response;
   }
@@ -74,6 +81,7 @@ class AuthService {
     final username = payload['username']?.toString() ?? '';
     final fullName = payload['full_name']?.toString() ?? '';
     final hasFaceEnrollment = payload['has_face_enrollment'] == true;
+    final registeredDeviceId = payload['registered_device_id']?.toString() ?? '';
     await SessionStore.save(
       tokenValue: token,
       roleValue: role,
@@ -81,6 +89,7 @@ class AuthService {
       usernameValue: username,
       fullNameValue: fullName,
       hasFaceEnrollmentValue: hasFaceEnrollment,
+      registeredDeviceIdValue: registeredDeviceId,
     );
   }
 }

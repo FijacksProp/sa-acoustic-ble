@@ -17,6 +17,8 @@ class AttendanceProofModel {
     this.attendanceFaceImageBase64,
     this.faceVerificationStatus,
     this.faceMatchScore,
+    this.deviceTrustStatus,
+    this.deviceTrustDetail,
   });
 
   final int? id;
@@ -36,6 +38,8 @@ class AttendanceProofModel {
   final String? attendanceFaceImageBase64;
   final String? faceVerificationStatus;
   final double? faceMatchScore;
+  final String? deviceTrustStatus;
+  final String? deviceTrustDetail;
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{
@@ -80,6 +84,8 @@ class AttendanceProofModel {
           json['attendance_face_image_base64'] as String?,
       faceVerificationStatus: json['face_verification_status'] as String?,
       faceMatchScore: (json['face_match_score'] as num?)?.toDouble(),
+      deviceTrustStatus: json['device_trust_status'] as String?,
+      deviceTrustDetail: json['device_trust_detail'] as String?,
     );
   }
 }

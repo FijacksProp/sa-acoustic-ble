@@ -2,6 +2,7 @@ import re
 from datetime import datetime, timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import viewsets, generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -70,7 +71,48 @@ class AttendanceProofListCreateAPIView(generics.ListCreateAPIView):
         requested = serializer.validated_data.get("student_id", "").strip()
         if requested and requested != identity:
             raise PermissionDenied("student_id must match authenticated student identity.")
-        serializer.save(student_id=identity)
+        submitted_device_id = serializer.validated_data.get("device_id", "").strip()
+        device_trust_status = AttendanceProof.DEVICE_TRUST_REGISTERED
+        device_trust_detail = "Attendance submitted from the registered student device."
+
+        if not submitted_device_id:
+            raise PermissionDenied("Device ID is required for attendance submission.")
+
+        conflicting_owner = (
+            UserProfile.objects.filter(
+                role=UserProfile.ROLE_STUDENT,
+                registered_device_id=submitted_device_id,
+            )
+            .exclude(pk=profile.pk)
+            .first()
+        )
+        if conflicting_owner:
+            raise PermissionDenied(
+                "This phone is already linked to another student account. "
+                "Use your registered phone for attendance."
+            )
+
+        if not profile.registered_device_id:
+            profile.registered_device_id = submitted_device_id
+            profile.registered_device_at = timezone.now()
+            profile.save(
+                update_fields=["registered_device_id", "registered_device_at"]
+            )
+            device_trust_status = AttendanceProof.DEVICE_TRUST_BOUND_ON_SUBMIT
+            device_trust_detail = (
+                "This phone has been linked as the student's registered device."
+            )
+        elif profile.registered_device_id != submitted_device_id:
+            raise PermissionDenied(
+                "This student account is already linked to another phone. "
+                "Use the registered phone or request a device reset."
+            )
+
+        serializer.save(
+            student_id=identity,
+            device_trust_status=device_trust_status,
+            device_trust_detail=device_trust_detail,
+        )
 
 
 class RegisterAPIView(generics.GenericAPIView):
@@ -127,9 +169,21 @@ class MeAPIView(APIView):
                 "matric_number": profile.matric_number,
                 "has_face_enrollment": bool(profile.face_image_base64),
                 "face_image_base64": profile.face_image_base64 if profile.role == UserProfile.ROLE_STUDENT else "",
+                "registered_device_id": profile.registered_device_id,
+                "registered_device_display": self._display_device_id(
+                    profile.registered_device_id
+                ),
             },
             status=status.HTTP_200_OK,
         )
+
+    def _display_device_id(self, raw_device_id: str) -> str:
+        raw = (raw_device_id or "").strip()
+        if not raw:
+            return "Not linked"
+        compact = raw.removeprefix("dev_").replace("-", "").upper()
+        suffix = compact if len(compact) <= 8 else compact[-8:]
+        return f"DEV-{suffix}"
 
 
 class AttendanceValidationReportAPIView(APIView):
@@ -256,6 +310,9 @@ class AttendanceValidationReportAPIView(APIView):
                 student_profile.face_image_base64 if student_profile else ""
             ),
             "face_match_score": proof.face_match_score,
+            "device_id": proof.device_id,
+            "device_trust_status": proof.device_trust_status,
+            "device_trust_detail": proof.device_trust_detail,
             "passed_checks": passed,
             "failed_checks": failed,
             "status": "pass" if not failed else "fail",

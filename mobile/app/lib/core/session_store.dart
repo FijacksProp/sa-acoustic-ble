@@ -8,6 +8,7 @@ class SessionStore {
   static const _keyUsername = 'auth_username';
   static const _keyFullName = 'auth_full_name';
   static const _keyHasFaceEnrollment = 'auth_has_face_enrollment';
+  static const _keyRegisteredDeviceId = 'auth_registered_device_id';
   static const _keyDeviceId = 'device_id';
   static const _keyCurrentSessionId = 'current_session_id';
 
@@ -17,6 +18,7 @@ class SessionStore {
   static String? username;
   static String? fullName;
   static bool hasFaceEnrollment = false;
+  static String? registeredDeviceId;
   static String? deviceId;
   static String? currentSessionId;
 
@@ -30,6 +32,7 @@ class SessionStore {
     username = prefs.getString(_keyUsername);
     fullName = prefs.getString(_keyFullName);
     hasFaceEnrollment = prefs.getBool(_keyHasFaceEnrollment) ?? false;
+    registeredDeviceId = prefs.getString(_keyRegisteredDeviceId);
     deviceId = prefs.getString(_keyDeviceId);
     currentSessionId = prefs.getString(_keyCurrentSessionId);
   }
@@ -41,6 +44,7 @@ class SessionStore {
     required String usernameValue,
     required String fullNameValue,
     required bool hasFaceEnrollmentValue,
+    String registeredDeviceIdValue = '',
   }) async {
     token = tokenValue;
     role = roleValue;
@@ -48,6 +52,7 @@ class SessionStore {
     username = usernameValue;
     fullName = fullNameValue;
     hasFaceEnrollment = hasFaceEnrollmentValue;
+    registeredDeviceId = registeredDeviceIdValue;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyToken, tokenValue);
     await prefs.setString(_keyRole, roleValue);
@@ -55,6 +60,7 @@ class SessionStore {
     await prefs.setString(_keyUsername, usernameValue);
     await prefs.setString(_keyFullName, fullNameValue);
     await prefs.setBool(_keyHasFaceEnrollment, hasFaceEnrollmentValue);
+    await prefs.setString(_keyRegisteredDeviceId, registeredDeviceIdValue);
   }
 
   static Future<void> clear() async {
@@ -64,6 +70,7 @@ class SessionStore {
     username = null;
     fullName = null;
     hasFaceEnrollment = false;
+    registeredDeviceId = null;
     deviceId = null;
     currentSessionId = null;
     final prefs = await SharedPreferences.getInstance();
@@ -73,6 +80,7 @@ class SessionStore {
     await prefs.remove(_keyUsername);
     await prefs.remove(_keyFullName);
     await prefs.remove(_keyHasFaceEnrollment);
+    await prefs.remove(_keyRegisteredDeviceId);
     await prefs.remove(_keyDeviceId);
     await prefs.remove(_keyCurrentSessionId);
   }
@@ -115,6 +123,12 @@ class SessionStore {
     hasFaceEnrollment = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyHasFaceEnrollment, value);
+  }
+
+  static Future<void> setRegisteredDeviceId(String value) async {
+    registeredDeviceId = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyRegisteredDeviceId, value);
   }
 
   static String displayDeviceId([String? rawDeviceId]) {

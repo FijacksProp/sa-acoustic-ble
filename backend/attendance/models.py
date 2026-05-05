@@ -26,9 +26,22 @@ class Session(models.Model):
 
 
 class AttendanceProof(models.Model):
+    DEVICE_TRUST_REGISTERED = "registered_device"
+    DEVICE_TRUST_BOUND_ON_SUBMIT = "bound_on_submit"
+    DEVICE_TRUST_CHOICES = [
+        (DEVICE_TRUST_REGISTERED, "Registered Device"),
+        (DEVICE_TRUST_BOUND_ON_SUBMIT, "Bound On Submit"),
+    ]
+
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="proofs")
     student_id = models.CharField(max_length=64)
     device_id = models.CharField(max_length=128)
+    device_trust_status = models.CharField(
+        max_length=32,
+        choices=DEVICE_TRUST_CHOICES,
+        default=DEVICE_TRUST_REGISTERED,
+    )
+    device_trust_detail = models.CharField(max_length=255, blank=True)
 
     acoustic_token = models.CharField(max_length=128)
     ble_nonce = models.CharField(max_length=128)
@@ -61,6 +74,8 @@ class UserProfile(models.Model):
     matric_number = models.CharField(max_length=64, unique=True, null=True, blank=True)
     role = models.CharField(max_length=16, choices=ROLE_CHOICES)
     face_image_base64 = models.TextField(blank=True)
+    registered_device_id = models.CharField(max_length=128, blank=True)
+    registered_device_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
         return f"{self.matric_number} ({self.role})"
