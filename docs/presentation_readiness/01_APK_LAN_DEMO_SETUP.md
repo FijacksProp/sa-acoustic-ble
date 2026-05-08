@@ -103,9 +103,21 @@ Checklist:
 - Windows Firewall allows Python or port `8000`.
 - Django `ALLOWED_HOSTS` includes the laptop IP address or allows local development hosts.
 
+## Backend URL Changes
+
+The app now includes a runtime Backend URL setting on the login/register/profile screens.
+
+This means:
+
+- If only the laptop IP address changes, the APK usually does not need to be rebuilt.
+- Open the app, update the Backend URL, and save it.
+- Example Backend URL: `http://10.73.208.158:8000`
+
+The `--dart-define=API_BASE_URL=...` value is still useful as the default URL when building, but it is no longer the only way to change the backend address.
+
 ## What Requires Rebuilding?
 
-Backend changes:
+Backend-only changes:
 
 - Usually no APK rebuild is needed.
 - Restart the Django server if needed.
@@ -116,7 +128,8 @@ Flutter UI or app logic changes:
 
 API base URL changes:
 
-- APK must be rebuilt if the URL is passed with `--dart-define`.
+- APK does not usually need to be rebuilt if the runtime Backend URL setting is used.
+- Rebuild only if you want to change the default URL embedded during build.
 
 ## Demo Recommendation
 
@@ -125,8 +138,9 @@ For the seminar:
 1. Use two Android phones if available.
 2. Install the APK on both phones before the presentation.
 3. Test login, lecturer session creation, broadcast, student scan, proof submission, and report display.
-4. Keep the laptop, phones, and Wi-Fi hotspot ready.
-5. If public Wi-Fi is unstable, use a phone hotspot or router dedicated to the demo.
+4. Grant Microphone, Nearby Devices/Bluetooth, and Location permissions before scan tests.
+5. Keep the laptop, phones, and Wi-Fi hotspot ready.
+6. If public Wi-Fi is unstable, use a phone hotspot or router dedicated to the demo.
 
 ## Important Limitation
 

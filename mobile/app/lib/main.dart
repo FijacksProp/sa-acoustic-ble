@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'core/session_store.dart';
+import 'core/api_config.dart';
 import 'core/error_messages.dart';
 import 'face/auto_face_capture_screen.dart';
 import 'models/attendance_proof_model.dart';
@@ -23,6 +24,7 @@ import 'services/auth_service.dart';
 import 'services/lecturer_broadcast_service.dart';
 import 'services/scan_test_log_service.dart';
 import 'services/signal_payload_codec.dart';
+import 'services/signal_transport_service.dart';
 
 void main() {
   runApp(const SaAcousticBleApp());
@@ -75,19 +77,41 @@ String _friendlyBleResult(ScanResultModel scan, bool trusted) {
 String _proofScanModeLabel({
   required String acousticToken,
   required String bleNonce,
+  String wifiProof = '',
 }) {
   final hasAcoustic = acousticToken.trim().isNotEmpty;
   final hasBle = bleNonce.trim().isNotEmpty;
-  if (hasAcoustic && hasBle) {
-    return 'Acoustic + BLE';
-  }
-  if (hasAcoustic) {
-    return 'Acoustic';
-  }
-  if (hasBle) {
-    return 'BLE';
+  final hasWifi = wifiProof.trim().isNotEmpty;
+  final modes = <String>[
+    if (hasAcoustic) 'Acoustic',
+    if (hasBle) 'BLE',
+    if (hasWifi) 'Wi-Fi',
+  ];
+  if (modes.isNotEmpty) {
+    return modes.join(' + ');
   }
   return 'Unknown';
+}
+
+String _permissionPromptMessage(
+  Object? missing, {
+  required String fallback,
+}) {
+  final values = (missing is List ? missing : const [])
+      .map((item) => item.toString())
+      .toSet();
+  if (values.isEmpty) {
+    return fallback;
+  }
+  final labels = <String>[
+    if (values.contains('microphone')) 'Microphone',
+    if (values.contains('location')) 'Location',
+    if (values.contains('nearby_devices')) 'Nearby Devices / Bluetooth',
+  ];
+  if (labels.isEmpty) {
+    return fallback;
+  }
+  return 'Permission needed: ${labels.join(', ')}. Allow the permission prompt, then try again.';
 }
 
 _ChipTone _proofScanModeTone(String mode) {
@@ -225,6 +249,7 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
   }
 
   Future<void> _loadSession() async {
+    await ApiConfig.load();
     await SessionStore.load();
     if (!mounted) {
       return;
@@ -276,6 +301,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _auth = AuthService();
   final _loginForm = GlobalKey<FormState>();
   final _registerForm = GlobalKey<FormState>();
+  final _apiBaseUrlController = TextEditingController();
 
   final _loginIdentifierController = TextEditingController();
   final _loginPasswordController = TextEditingController();
@@ -289,6 +315,13 @@ class _AuthScreenState extends State<AuthScreen> {
   final bool _capturingRegistrationFace = false;
 
   bool _loading = false;
+  bool _savingApiUrl = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
+  }
 
   @override
   void dispose() {
@@ -298,7 +331,35 @@ class _AuthScreenState extends State<AuthScreen> {
     _regUsernameController.dispose();
     _regMatricController.dispose();
     _regPasswordController.dispose();
+    _apiBaseUrlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveApiBaseUrl() async {
+    final value = _apiBaseUrlController.text.trim();
+    if (value.isEmpty ||
+        (!value.startsWith('http://') && !value.startsWith('https://'))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter a backend URL starting with http:// or https://'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _savingApiUrl = true;
+    });
+    await ApiConfig.setRuntimeBaseUrl(value);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
+      _savingApiUrl = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Backend URL saved: ${ApiConfig.currentBaseUrl}')),
+    );
   }
 
   Future<void> _login() async {
@@ -413,6 +474,12 @@ class _AuthScreenState extends State<AuthScreen> {
                 key: _loginForm,
                 child: Column(
                   children: [
+                    _BackendUrlCard(
+                      controller: _apiBaseUrlController,
+                      saving: _savingApiUrl,
+                      onSave: _saveApiBaseUrl,
+                    ),
+                    const SizedBox(height: 12),
                     _buildRequiredField(
                       _loginIdentifierController,
                       'Identifier (Matric or Username)',
@@ -443,6 +510,12 @@ class _AuthScreenState extends State<AuthScreen> {
                 key: _registerForm,
                 child: Column(
                   children: [
+                    _BackendUrlCard(
+                      controller: _apiBaseUrlController,
+                      saving: _savingApiUrl,
+                      onSave: _saveApiBaseUrl,
+                    ),
+                    const SizedBox(height: 12),
                     _buildRequiredField(_regNameController, 'Full Name'),
                     if (_role == 'student')
                       _buildRequiredField(_regMatricController, 'Matric Number'),
@@ -706,9 +779,11 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _api = AttendanceApiService();
   final _acoustic = AcousticScanService();
   final _ble = BleScanService();
+  final _transport = SignalTransportService();
   final _scanLogService = ScanTestLogService();
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
+  final _wifiProofController = TextEditingController();
   final _rssiController = TextEditingController(text: '-60');
 
   bool _submitting = false;
@@ -746,6 +821,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
   void dispose() {
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
+    _wifiProofController.dispose();
     _rssiController.dispose();
     super.dispose();
   }
@@ -796,7 +872,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
     }
     if (!_scanEligibleForSubmit) {
       setState(() {
-        _statusMessage = 'No valid acoustic-only or BLE-only attendance path is ready yet.';
+        _statusMessage =
+            'No valid acoustic, BLE, or Wi-Fi/LAN attendance path is ready yet.';
       });
       _showFeedback('No valid attendance path is ready yet. Run a fresh scan.');
       return;
@@ -809,7 +886,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
       _showFeedback('Attendance has already been submitted for this session.');
       return;
     }
-    if (_acousticTokenController.text.trim().isEmpty && _bleNonceController.text.trim().isEmpty) {
+    final hasSignalData = _acousticTokenController.text.trim().isNotEmpty ||
+        _bleNonceController.text.trim().isNotEmpty ||
+        _wifiProofController.text.trim().isNotEmpty;
+    if (!hasSignalData) {
       setState(() {
         _statusMessage = 'No signal data from scan. Please scan again.';
       });
@@ -832,6 +912,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       deviceId: deviceId,
       acousticToken: _acousticTokenController.text.trim(),
       bleNonce: _bleNonceController.text.trim(),
+      wifiProof: _wifiProofController.text.trim(),
       rssi: rssi,
       observedAt: observedAt,
     );
@@ -848,6 +929,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         deviceId: deviceId,
         acousticToken: _acousticTokenController.text.trim(),
         bleNonce: _bleNonceController.text.trim(),
+        wifiProof: _wifiProofController.text.trim(),
         rssi: rssi,
         observedAt: observedAt,
         signature: signature,
@@ -912,6 +994,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
     required String deviceId,
     required String acousticToken,
     required String bleNonce,
+    required String wifiProof,
     required int rssi,
     required DateTime observedAt,
   }) {
@@ -921,6 +1004,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       deviceId,
       acousticToken,
       bleNonce,
+      wifiProof,
       rssi,
       observedAt.toIso8601String(),
     ].join('|');
@@ -968,7 +1052,34 @@ class _StudentScanPageState extends State<StudentScanPage> {
             scan.source == 'web_broadcast_cache');
   }
 
+  Future<bool> _ensureStudentScanPermissions() async {
+    final readiness = await _transport.ensureStudentScanPermissions();
+    if (readiness == null || readiness['ready'] == true) {
+      return true;
+    }
+    final message = _permissionPromptMessage(
+      readiness['missing'],
+      fallback:
+          'Allow microphone, location, and nearby-device permissions, then scan again.',
+    );
+    if (!mounted) {
+      return false;
+    }
+    setState(() {
+      _statusMessage = message;
+      _failedChecks = [message];
+      _passedChecks = [];
+      _scanEligibleForSubmit = false;
+    });
+    _showFeedback(message);
+    return false;
+  }
+
   Future<void> _runSignalScan() async {
+    final permissionsReady = await _ensureStudentScanPermissions();
+    if (!permissionsReady) {
+      return;
+    }
     setState(() {
       _scanning = true;
       _statusMessage = null;
@@ -1091,6 +1202,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       setState(() {
         _acousticTokenController.text = acoustic.acousticToken;
         _bleNonceController.text = ble.bleNonce ?? '';
+        _wifiProofController.clear();
         _rssiController.text = '${ble.rssi ?? -60}';
         _decodedSessionId = decodedSession;
         _signalAgeSeconds = maxAge;
@@ -1133,6 +1245,98 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _scanEligibleForSubmit = false;
         _statusMessage = message;
       });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _runWifiVerification() async {
+    setState(() {
+      _scanning = true;
+      _statusMessage = null;
+    });
+    try {
+      final sessions = await _api.listSessions();
+      final activeSessions =
+          sessions.where((session) => session.active && session.id != null).toList();
+      if (activeSessions.isEmpty) {
+        throw Exception('No active session is available for Wi-Fi/LAN verification.');
+      }
+      activeSessions.sort((a, b) => b.startsAt.compareTo(a.startsAt));
+      final session = activeSessions.first;
+      final sessionId = session.id!;
+      if (_submittedSessionIds.contains(sessionId)) {
+        throw Exception('Attendance has already been submitted for this session.');
+      }
+      final issuedAt = DateTime.now().toUtc();
+      final epochSeconds = issuedAt.millisecondsSinceEpoch ~/ 1000;
+      final wifiProof = 'wifi|$sessionId|$epochSeconds';
+      final savedLogs = await _scanLogService.addLog(
+        ScanTestLogModel(
+          recordedAt: issuedAt,
+          trustSummary: 'Trusted Wi-Fi/LAN verification',
+          acousticSource: 'not_used',
+          bleSource: 'not_used',
+          acousticDiagnostic: '',
+          bleDiagnostic: '',
+          decodedSessionId: sessionId,
+          signalAgeSeconds: 0,
+          rssi: null,
+          passedChecks: const [
+            'Wi-Fi/LAN proof generated',
+            'Session selected from active backend sessions',
+            'Proof path ready: wifi_lan',
+          ],
+          failedChecks: const [],
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _acousticTokenController.clear();
+        _bleNonceController.clear();
+        _wifiProofController.text = wifiProof;
+        _rssiController.text = '0';
+        _decodedSessionId = sessionId;
+        _signalAgeSeconds = 0;
+        _passedChecks = const [
+          'Wi-Fi/LAN proof generated',
+          'Session selected from active backend sessions',
+          'Proof path ready: wifi_lan',
+        ];
+        _failedChecks = [];
+        _scanEligibleForSubmit = true;
+        _scanLogs = savedLogs;
+        _statusMessage = [
+          'Trusted Wi-Fi/LAN verification',
+          'Proof path: wifi_lan',
+          'Session: ${session.courseCode} - ${session.courseTitle}',
+          'Room: ${session.room}',
+        ].join('\n');
+      });
+      _showFeedback('Wi-Fi/LAN verification is ready. Submit proof now.');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Wi-Fi/LAN verification could not be completed.',
+      );
+      setState(() {
+        _failedChecks = [message];
+        _passedChecks = [];
+        _decodedSessionId = null;
+        _signalAgeSeconds = null;
+        _scanEligibleForSubmit = false;
+        _statusMessage = message;
+      });
+      _showFeedback(message);
     } finally {
       if (mounted) {
         setState(() {
@@ -1194,32 +1398,40 @@ class _StudentScanPageState extends State<StudentScanPage> {
               required: false,
             ),
             _buildRequiredField(
+              _wifiProofController,
+              'Wi-Fi/LAN Proof',
+              readOnly: true,
+              required: false,
+            ),
+            _buildRequiredField(
               _rssiController,
               'RSSI',
               numeric: true,
               readOnly: true,
             ),
             const SizedBox(height: 16),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
               children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: (_scanning ||
-                            (_decodedSessionId != null &&
-                                _submittedSessionIds.contains(_decodedSessionId)))
-                        ? null
-                        : _runSignalScan,
-                    icon: const Icon(Icons.wifi_tethering_outlined),
-                    label: Text(_scanning ? 'Scanning...' : 'Run Signal Scan'),
-                  ),
+                OutlinedButton.icon(
+                  onPressed: (_scanning ||
+                          (_decodedSessionId != null &&
+                              _submittedSessionIds.contains(_decodedSessionId)))
+                      ? null
+                      : _runSignalScan,
+                  icon: const Icon(Icons.radar_outlined),
+                  label: Text(_scanning ? 'Scanning...' : 'Scan Acoustic/BLE'),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: _submitting ? null : _submitProof,
-                    icon: const Icon(Icons.verified_outlined),
-                    label: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
-                  ),
+                OutlinedButton.icon(
+                  onPressed: (_scanning || _submitting) ? null : _runWifiVerification,
+                  icon: const Icon(Icons.wifi_outlined),
+                  label: const Text('Verify Wi-Fi/LAN'),
+                ),
+                FilledButton.icon(
+                  onPressed: _submitting ? null : _submitProof,
+                  icon: const Icon(Icons.verified_outlined),
+                  label: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
                 ),
               ],
             ),
@@ -1394,6 +1606,7 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
                               final mode = _proofScanModeLabel(
                                 acousticToken: proof.acousticToken,
                                 bleNonce: proof.bleNonce,
+                                wifiProof: proof.wifiProof,
                               );
                               return Card(
                                 child: Padding(
@@ -1518,6 +1731,7 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   final _formKey = GlobalKey<FormState>();
   final _api = AttendanceApiService();
   final _broadcast = LecturerBroadcastService();
+  final _transport = SignalTransportService();
   final _courseCodeController = TextEditingController();
   final _courseTitleController = TextEditingController();
   final _lecturerNameController = TextEditingController();
@@ -1608,12 +1822,35 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     }
   }
 
-  void _startBroadcast() {
+  Future<bool> _ensureLecturerBroadcastPermissions() async {
+    final readiness = await _transport.ensureLecturerBroadcastPermissions();
+    if (readiness == null || readiness['ready'] == true) {
+      return true;
+    }
+    final message = _permissionPromptMessage(
+      readiness['missing'],
+      fallback:
+          'Allow Nearby Devices / Bluetooth permission, then start broadcast again.',
+    );
+    if (!mounted) {
+      return false;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+    return false;
+  }
+
+  Future<void> _startBroadcast() async {
     final sessionId = _lastSession?.id;
     if (sessionId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Create a session before broadcasting.')),
       );
+      return;
+    }
+    final permissionsReady = await _ensureLecturerBroadcastPermissions();
+    if (!permissionsReady) {
       return;
     }
     _broadcast.start(
@@ -2040,6 +2277,7 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
     return _proofScanModeLabel(
       acousticToken: proof.acousticToken,
       bleNonce: proof.bleNonce,
+      wifiProof: proof.wifiProof,
     );
   }
 
@@ -2360,13 +2598,22 @@ class _AccountProfilePage extends StatefulWidget {
 class _AccountProfilePageState extends State<_AccountProfilePage> {
   String? _deviceId;
   final _auth = AuthService();
+  final _apiBaseUrlController = TextEditingController();
   bool _enrollingFace = false;
   String? _latestEnrolledFaceBase64;
+  bool _savingApiUrl = false;
 
   @override
   void initState() {
     super.initState();
+    _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
     _loadDeviceId();
+  }
+
+  @override
+  void dispose() {
+    _apiBaseUrlController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDeviceId() async {
@@ -2429,6 +2676,33 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
         });
       }
     }
+  }
+
+  Future<void> _saveApiBaseUrl() async {
+    final value = _apiBaseUrlController.text.trim();
+    if (value.isEmpty ||
+        (!value.startsWith('http://') && !value.startsWith('https://'))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter a backend URL starting with http:// or https://'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _savingApiUrl = true;
+    });
+    await ApiConfig.setRuntimeBaseUrl(value);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
+      _savingApiUrl = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Backend URL saved: ${ApiConfig.currentBaseUrl}')),
+    );
   }
 
   @override
@@ -2529,6 +2803,17 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
                 value: _deviceId ?? 'Generating...',
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Backend Connection',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 10),
+          _BackendUrlCard(
+            controller: _apiBaseUrlController,
+            saving: _savingApiUrl,
+            onSave: _saveApiBaseUrl,
           ),
         ],
       ),
@@ -2751,6 +3036,69 @@ class _InfoRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _BackendUrlCard extends StatelessWidget {
+  const _BackendUrlCard({
+    required this.controller,
+    required this.saving,
+    required this.onSave,
+  });
+
+  final TextEditingController controller;
+  final bool saving;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.dns_outlined, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Backend URL',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Change this when your laptop IP changes. Example: http://10.73.208.158:8000',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: controller,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              labelText: 'Backend URL',
+              prefixIcon: Icon(Icons.link),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: saving ? null : onSave,
+              icon: const Icon(Icons.save_outlined),
+              label: Text(saving ? 'Saving...' : 'Save URL'),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3487,6 +3835,11 @@ class _ScanTestLogCard extends StatelessWidget {
                       ? _ChipTone.success
                       : _ChipTone.neutral,
                 ),
+                if (_isWifiLog(log))
+                  const _StatusChip(
+                    label: 'Wi-Fi/LAN ready',
+                    tone: _ChipTone.success,
+                  ),
               ],
             ),
             const SizedBox(height: 8),
@@ -3532,6 +3885,11 @@ class _ScanTestLogCard extends StatelessWidget {
       return 'Bluetooth off';
     }
     return 'not captured';
+  }
+
+  bool _isWifiLog(ScanTestLogModel log) {
+    final summary = log.trustSummary.toLowerCase();
+    return summary.contains('wi-fi') || summary.contains('wifi');
   }
 }
 

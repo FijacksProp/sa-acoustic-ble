@@ -11,6 +11,8 @@ class AttendanceProofModel {
     required this.deviceId,
     required this.acousticToken,
     required this.bleNonce,
+    this.wifiProof = '',
+    this.wifiClientIp,
     required this.rssi,
     required this.observedAt,
     required this.signature,
@@ -32,6 +34,8 @@ class AttendanceProofModel {
   final String deviceId;
   final String acousticToken;
   final String bleNonce;
+  final String wifiProof;
+  final String? wifiClientIp;
   final int rssi;
   final DateTime observedAt;
   final String signature;
@@ -48,6 +52,7 @@ class AttendanceProofModel {
       'device_id': deviceId,
       'acoustic_token': acousticToken,
       'ble_nonce': bleNonce,
+      'wifi_proof': wifiProof,
       'rssi': rssi,
       'observed_at': observedAt.toUtc().toIso8601String(),
       'signature': signature,
@@ -77,6 +82,8 @@ class AttendanceProofModel {
       deviceId: json['device_id'] as String? ?? '',
       acousticToken: json['acoustic_token'] as String? ?? '',
       bleNonce: json['ble_nonce'] as String? ?? '',
+      wifiProof: json['wifi_proof'] as String? ?? '',
+      wifiClientIp: json['wifi_client_ip'] as String?,
       rssi: json['rssi'] as int? ?? 0,
       observedAt: DateTime.parse(json['observed_at'] as String),
       signature: json['signature'] as String? ?? '',

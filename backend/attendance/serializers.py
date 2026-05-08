@@ -1,4 +1,5 @@
 import re
+import ipaddress
 from datetime import timedelta, datetime, timezone as dt_timezone
 
 from django.contrib.auth import authenticate
@@ -48,6 +49,9 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
     BLE_PATTERN = re.compile(
         r"^ble\|(?P<session>\d+)\|(?P<issued>\d{10})\|(?P<nonce>[A-Za-z0-9_]+)$"
     )
+    WIFI_PATTERN = re.compile(
+        r"^wifi\|(?P<session>\d+)\|(?P<issued>\d{10})$"
+    )
 
     student_name = serializers.SerializerMethodField()
     course_code = serializers.CharField(source="session.course_code", read_only=True)
@@ -73,6 +77,8 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "device_trust_detail",
             "acoustic_token",
             "ble_nonce",
+            "wifi_proof",
+            "wifi_client_ip",
             "rssi",
             "observed_at",
             "signature",
@@ -86,10 +92,12 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "created_at",
             "device_trust_status",
             "device_trust_detail",
+            "wifi_client_ip",
         ]
         extra_kwargs = {
             "acoustic_token": {"allow_blank": True},
             "ble_nonce": {"allow_blank": True},
+            "wifi_proof": {"allow_blank": True},
             "attendance_face_image_base64": {"allow_blank": True},
         }
 
@@ -120,20 +128,29 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
 
         acoustic = attrs["acoustic_token"].strip()
         ble = attrs["ble_nonce"].strip()
+        wifi = attrs.get("wifi_proof", "").strip()
         acoustic_match = self.ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
         compact_acoustic_match = (
             self.COMPACT_ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
         )
         ble_match = self.BLE_PATTERN.match(ble) if ble else None
+        wifi_match = self.WIFI_PATTERN.match(wifi) if wifi else None
         if acoustic and not acoustic_match and not compact_acoustic_match:
             raise serializers.ValidationError(
                 {"acoustic_token": "Invalid acoustic token format."}
             )
         if ble and not ble_match:
             raise serializers.ValidationError({"ble_nonce": "Invalid BLE nonce format."})
-        if not acoustic_match and not compact_acoustic_match and not ble_match:
+        if wifi and not wifi_match:
+            raise serializers.ValidationError({"wifi_proof": "Invalid Wi-Fi proof format."})
+        if (
+            not acoustic_match
+            and not compact_acoustic_match
+            and not ble_match
+            and not wifi_match
+        ):
             raise serializers.ValidationError(
-                "Provide at least one valid attendance signal: acoustic_token or ble_nonce."
+                "Provide at least one valid attendance signal: acoustic, BLE, or Wi-Fi/LAN."
             )
 
         challenge_token = ""
@@ -176,6 +193,31 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"ble_nonce": "BLE nonce has expired."})
             ble_nonce_value = ble_match.group("nonce")
 
+        if wifi_match:
+            wifi_session = int(wifi_match.group("session"))
+            if wifi_session != session.id:
+                raise serializers.ValidationError(
+                    {"session": "Wi-Fi proof session_id does not match selected session."}
+                )
+            wifi_issued = datetime.fromtimestamp(
+                int(wifi_match.group("issued")), tz=dt_timezone.utc
+            )
+            if (now - wifi_issued).total_seconds() > self.SIGNAL_EXPIRY_SECONDS or (
+                now - wifi_issued
+            ).total_seconds() < -10:
+                raise serializers.ValidationError({"wifi_proof": "Wi-Fi proof has expired."})
+            remote_addr = self._request_remote_addr()
+            if not self._is_private_lan_address(remote_addr):
+                raise serializers.ValidationError(
+                    {
+                        "wifi_proof": (
+                            "Wi-Fi/LAN proof requires the phone to reach the "
+                            "backend through a local private network."
+                        )
+                    }
+                )
+            attrs["wifi_client_ip"] = remote_addr
+
         attrs["_decoded_challenge_token"] = challenge_token
         attrs["_decoded_ble_nonce"] = ble_nonce_value
         if AttendanceReplayGuard.objects.filter(
@@ -198,6 +240,7 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         attrs["device_id"] = attrs["device_id"].strip()
         attrs["acoustic_token"] = attrs["acoustic_token"].strip()
         attrs["ble_nonce"] = attrs["ble_nonce"].strip()
+        attrs["wifi_proof"] = attrs.get("wifi_proof", "").strip()
         attrs["signature"] = attrs["signature"].strip()
         attrs["attendance_face_image_base64"] = attrs.get(
             "attendance_face_image_base64", ""
@@ -213,6 +256,8 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         challenge_token = validated_data.pop("_decoded_challenge_token", None)
         ble_nonce_value = validated_data.pop("_decoded_ble_nonce", None)
         proof = super().create(validated_data)
+        if not challenge_token and not ble_nonce_value:
+            return proof
         try:
             AttendanceReplayGuard.objects.create(
                 session=proof.session,
@@ -225,6 +270,22 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
                 {"ble_nonce": "Replay detected: challenge/nonce already used."}
             )
         return proof
+
+    def _request_remote_addr(self):
+        request = self.context.get("request")
+        if request is None:
+            return ""
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        return request.META.get("REMOTE_ADDR", "").strip()
+
+    def _is_private_lan_address(self, value):
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            return False
+        return address.is_private or address.is_loopback
 
     def validate_student_id(self, value):
         cleaned = value.strip()

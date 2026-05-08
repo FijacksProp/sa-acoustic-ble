@@ -6,7 +6,7 @@ This chapter reviews literature relevant to the design and implementation of a s
 
 Attendance monitoring is a common administrative requirement in universities because it provides evidence of student participation and supports academic accountability. However, the method used to capture attendance affects speed, accuracy, convenience, privacy, and resistance to fraud. Earlier approaches such as manual roll call and paper registers are simple, but they are slow and vulnerable to proxy attendance. More recent systems use RFID, NFC, QR codes, biometrics, GPS, Bluetooth, Wi-Fi, and mobile applications to automate attendance capture. Each method offers benefits, but each also has limitations when used alone.
 
-The proposed system is positioned within this body of work as a mobile-based attendance platform that uses short-range communication signals to support classroom proximity verification. The system currently focuses on acoustic beaconing and BLE proximity signals, while its anti-fraud design considers device trust, duplicate prevention, signal freshness, and exception handling. These anti-fraud controls are discussed in this chapter as design considerations rather than as claims of complete fraud prevention.
+The proposed system is positioned within this body of work as a mobile-based attendance platform that uses short-range communication signals to support classroom proximity verification. The system focuses mainly on BLE proximity and acoustic beaconing, while Wi-Fi/LAN is treated as a secondary fallback for controlled classroom-network situations. This distinction is important because the current acoustic prototype is short-ranged, BLE has shown better practical range after correct Android permissions were enabled, and Wi-Fi verifies network presence rather than exact physical distance. The anti-fraud design considers device trust, duplicate prevention, signal freshness, replay protection, and exception handling. These controls are discussed as design safeguards rather than as claims of complete fraud prevention.
 
 ## 2.2 Concept of Attendance Management Systems
 
@@ -36,13 +36,13 @@ Mobile-based systems have several advantages over fixed hardware systems. They r
 
 Despite these advantages, mobile-based systems must handle device diversity. Different phones may have different speaker volume, microphone sensitivity, Bluetooth chipsets, Android versions, permission behavior, and battery conditions. A good design should therefore avoid depending on one perfect signal. It should provide clear error messages, allow controlled exceptions, and validate submissions on the server rather than trusting the mobile app alone.
 
-In this project, the mobile application is used by the lecturer to create and broadcast session-specific signals, and by the student to scan and submit attendance proof. The backend validates session identity, freshness, and duplicate attendance. This architecture supports speed while keeping important validation logic outside the client device.
+In this project, the mobile application is used by the lecturer to create and broadcast session-specific signals, and by the student to scan and submit attendance proof. The backend validates session identity, freshness, duplicate attendance, replay attempts, and registered-device trust. This architecture supports speed while keeping important validation logic outside the client device.
 
 ## 2.5 Proximity-Based Attendance Verification
 
 Proximity-based attendance verification attempts to confirm that a student is physically near the lecturer or classroom when attendance is taken. This is different from simply confirming that a student knows a password or can access an online form. Proximity verification is important because attendance is meant to represent physical presence in a class session.
 
-Several technologies can support proximity verification. GPS can estimate location outdoors, but it is less reliable indoors. Wi-Fi can infer location based on access points, but it may require infrastructure and calibration. BLE can detect nearby beacons or advertisements, but signal strength varies across devices and indoor environments. Acoustic signals can provide room-level proximity because sound must be received by the student's microphone, but acoustic performance depends on speaker quality, microphone response, distance, and noise.
+Several technologies can support proximity verification. GPS can estimate location outdoors, but it is less reliable indoors. Wi-Fi can support network-level presence through a classroom router or access point, but it does not by itself prove exact distance from the lecturer. BLE can detect nearby beacons or advertisements, but signal strength varies across devices and indoor environments. Acoustic signals can support close-range copresence because sound must be received by the student's microphone, but acoustic performance depends strongly on speaker quality, microphone response, distance, and noise.
 
 A proximity-based attendance system should also use signal freshness. A signal should be short-lived so that an old signal cannot be reused after the session. It should also use duplicate prevention so that a student cannot submit multiple proofs for the same session. These ideas are related to replay protection in communication systems, where old messages must not be accepted as current evidence.
 
@@ -58,7 +58,7 @@ Jia et al. (2022) also studied smartphone-based near-ultrasonic signals for soci
 
 Acoustic beaconing has limitations. Speaker and microphone hardware differ across phones. High-frequency signals may be attenuated by phone speakers, Bluetooth speakers, distance, noise, and room acoustics. Some users may faintly hear near-ultrasonic tones depending on frequency and device output. Background noise can reduce decoding reliability. These limitations mean that acoustic communication should be evaluated under real classroom conditions and should not be presented as a perfect replacement for all other methods.
 
-In this project, acoustic beaconing is used as one proximity verification channel. Its role is to provide a short-lived classroom signal that the student device can capture and submit as proof. The system also supports BLE as another proximity channel so that attendance does not depend entirely on acoustic reception.
+In this project, acoustic beaconing is used as a short-range proximity verification channel. Its role is to provide a short-lived classroom signal that the student device can capture and submit as proof when the devices are close enough and the environment is favourable. The current prototype has shown that acoustic decoding is sensitive to distance and noise, so it is not treated as the main large-classroom channel. The system also supports BLE as a stronger practical classroom signal so that attendance does not depend entirely on acoustic reception.
 
 ## 2.7 Bluetooth Low Energy Proximity Verification
 
@@ -68,7 +68,7 @@ BLE has been used in attendance and indoor positioning research. Puckdeevongs, T
 
 BLE attendance systems also have security concerns. Kim, Lee, and Paek (2018) analyzed BLE beacon-based electronic attendance systems and discussed signal imitation and forwarding attacks. Their work is important because it shows that a BLE signal alone may not be sufficient if an attacker can imitate or relay the beacon. Therefore, BLE attendance systems should use freshness, short-lived random values, backend validation, and additional risk controls.
 
-In this project, BLE is used as a proximity signal rather than as precise indoor positioning. The lecturer device advertises a session-specific nonce, and the student device scans for it. The backend validates that the nonce belongs to the current session and has not expired. This design reduces dependence on RSSI accuracy while still benefiting from BLE's ability to detect nearby devices.
+In this project, BLE is used as the primary practical proximity signal rather than as precise indoor positioning. The lecturer device advertises a session-specific nonce, and the student device scans for it. The backend validates that the nonce belongs to the current session and has not expired. This design reduces dependence on RSSI accuracy while still benefiting from BLE's ability to detect nearby devices. The system can also be extended with fixed BLE beacons in larger rooms; such beacons do not amplify the lecturer phone, but act as additional broadcasters placed at strategic points in the classroom.
 
 ## 2.8 Review of Existing Attendance Technologies
 
@@ -105,6 +105,12 @@ BLE attendance systems use beacons or advertising devices to confirm that a stud
 ### 2.8.7 Acoustic Attendance
 
 Acoustic attendance systems use sound as a proximity signal. They can work without additional radio infrastructure because smartphones already have speakers and microphones. Acoustic signals can support room-level copresence, especially when short tokens are transmitted near the lecturer. Their limitations include noise, distance, speaker volume, microphone sensitivity, and room acoustics. For this reason, acoustic attendance should be tested on real devices and ideally paired with another channel such as BLE.
+
+### 2.8.8 Wi-Fi/LAN Fallback Attendance
+
+Wi-Fi can support attendance verification when students connect to a classroom network or when the backend is reachable only from a local network. The advantage of Wi-Fi is wider coverage and easier use in rooms where acoustic and BLE reception may be inconsistent. However, Wi-Fi is weaker as a proximity proof because a connected device may be outside the exact classroom boundary if the network signal extends beyond the room. It is therefore best treated as supporting evidence or a fallback path, not as the main proof of physical presence.
+
+In this project, Wi-Fi/LAN proof is used minimally. A student device can generate a short proof for the latest active session, and the backend accepts it only when the request reaches the server through a private local network and the normal identity, session, duplicate, and device-trust checks pass. This approach is useful for demonstrations and controlled environments, but BLE and acoustic signals remain the main proximity technologies discussed in the project.
 
 ## 2.9 Anti-Fraud Considerations in Smart Attendance
 
@@ -145,9 +151,10 @@ Rashid (2024) reviewed smart attendance systems in smart campus environments and
 | QR code | Cheap and easy to deploy | Code can be shared if not dynamic | Screenshot or forwarding | Shows need for freshness and proximity |
 | GPS/geofencing | Confirms broad location | Weak indoors and not room-specific | Location spoofing or inaccurate indoor data | Useful but less suitable as main classroom proof |
 | Biometrics | Stronger identity verification | Privacy, lighting, cost, device issues | Presentation attacks or recognition errors | Considered but excluded from main scope |
-| BLE | Short-range wireless proximity | Permissions, RSSI variation, signal imitation | Relay or imitation attacks | Used as one proximity channel |
-| Acoustic beacon | Uses phone speaker/microphone, supports copresence | Noise, distance, hardware differences | Recording/replay if freshness is weak | Used as one proximity channel |
-| Proposed Acoustic + BLE system | Dual proximity evidence, freshness, backend validation | Still affected by device/environment constraints | Requires duplicate and device-trust controls | Main focus of this project |
+| BLE | Short-range wireless proximity | Permissions, RSSI variation, signal imitation | Relay or imitation attacks | Main practical proximity channel |
+| Acoustic beacon | Uses phone speaker/microphone, supports close-range copresence | Noise, distance, hardware differences | Recording/replay if freshness is weak | Short-range supplementary proximity channel |
+| Wi-Fi/LAN | Wider classroom network reach | Proves network presence, not exact distance | Students outside room may still connect if signal leaks | Minimal fallback and support channel |
+| Proposed Acoustic + BLE system with Wi-Fi fallback | Layered proof, freshness, backend validation | Still affected by device, permission, and environment constraints | Requires duplicate and device-trust controls | Main focus of this project |
 
 The comparison shows that no attendance technology is completely free from limitations. The strength of the proposed system is not that acoustic or BLE is perfect, but that the system combines mobile proximity evidence with server-side validation and reporting. This makes it more flexible than single-channel systems and more practical than solutions requiring dedicated hardware.
 
@@ -157,10 +164,10 @@ The reviewed literature shows that automated attendance systems can improve spee
 
 BLE-based systems are relevant to smart campus attendance, but BLE proximity can be affected by hardware differences, operating-system permissions, radio interference, signal strength variation, and possible signal imitation. Acoustic communication can support room-level copresence using commodity smartphone hardware, but it is affected by distance, noise, speaker quality, microphone response, and room acoustics. These limitations do not make BLE or acoustic methods unsuitable; rather, they show that each method should be used carefully and validated through freshness, session identity, and backend checks.
 
-The research gap is therefore the need for a practical mobile attendance system that combines proximity-based verification, freshness control, duplicate prevention, reporting, and device-trust considerations without relying on a single signal channel or expensive dedicated hardware. This project addresses that gap by designing and implementing an Android-based attendance system where the lecturer can broadcast acoustic and BLE session signals, the student can scan and submit proof, and the backend can validate attendance records for the current session.
+The research gap is therefore the need for a practical mobile attendance system that combines proximity-based verification, freshness control, duplicate prevention, reporting, and device-trust considerations without relying on a single signal channel or expensive dedicated hardware. This project addresses that gap by designing and implementing an Android-based attendance system where BLE provides the main practical classroom signal, acoustic beaconing provides short-range copresence evidence, Wi-Fi/LAN provides a minimal fallback where policy permits, and the backend validates attendance records for the current session.
 
 ## 2.13 Summary
 
 This chapter reviewed literature on attendance management systems, smart attendance technologies, mobile verification, proximity-based attendance, acoustic communication, BLE proximity, and anti-fraud considerations. The review shows that existing systems improve attendance capture in different ways, but each method has trade-offs. RFID and NFC require hardware, QR codes can be shared, GPS may be weak indoors, biometrics raise privacy and operational concerns, BLE may face signal and security limitations, and acoustic signals may be affected by noise and device quality.
 
-The proposed system builds on these findings by using acoustic and BLE proximity verification with backend validation. The literature supports the need for short-lived session signals, duplicate prevention, and device-trust logic. Chapter Three will present the methodology, system analysis, architecture, database design, and implementation approach for the proposed system.
+The proposed system builds on these findings by using BLE and acoustic proximity verification with backend validation, while keeping Wi-Fi/LAN as a secondary fallback rather than the main proof channel. The literature supports the need for short-lived session signals, duplicate prevention, replay resistance, and device-trust logic. Chapter Three will present the methodology, system analysis, architecture, database design, and implementation approach for the proposed system.

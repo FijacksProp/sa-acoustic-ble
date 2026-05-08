@@ -13,7 +13,7 @@ class ApiClient {
 
   final http.Client _client;
 
-  Uri _uri(String path) => Uri.parse('${ApiConfig.baseUrl}$path');
+  Uri _uri(String path) => Uri.parse('${ApiConfig.currentBaseUrl}$path');
 
   Future<Map<String, dynamic>> postJson(
     String path,

@@ -2,27 +2,31 @@
 
 ## Purpose
 
-This document explains how Wi-Fi could be used as an additional attendance verification layer.
+This document explains how Wi-Fi/LAN can be used as a fallback attendance verification layer.
 
-Wi-Fi was suggested because it can cover a larger area than acoustic signals and may be more reliable in some classroom environments.
+Wi-Fi was suggested because it can cover a larger area than acoustic signals and may be more reliable in some classroom environments. In this project, however, it is kept as fallback/support evidence because it proves network presence rather than exact proximity.
 
 ## Main Position
 
-Wi-Fi can be useful, but it should not fully replace Acoustic and BLE at this stage.
+Wi-Fi can be useful, but it should not replace Acoustic and BLE in the main project argument.
 
 Best position:
 
-> Wi-Fi can be added as a supporting verification layer for larger classrooms, while Acoustic and BLE remain proximity-based signals for lecturer-to-student or classroom-level verification.
+> Wi-Fi/LAN should be treated as a fallback or supporting verification layer. BLE remains the main practical classroom-range proximity signal, while acoustic remains a short-range copresence signal.
+
+Current implementation note:
+
+> The project now includes a Wi-Fi/LAN proof path for APK demos and fallback classroom-network verification. It accepts attendance when the student is authenticated, the session is active, the device passes device-trust rules, no duplicate proof exists, and the phone reaches the backend from a private/local network.
 
 ## Why Wi-Fi Is Attractive
 
-Wi-Fi may be useful because:
+Wi-Fi may be useful as fallback support because:
 
 - It has wider coverage than acoustic.
 - It is already available in many schools.
 - It can support many devices at once.
 - Students can connect without being very close to the lecturer phone.
-- It can help confirm that the student device is within the school or classroom network.
+- It can help confirm that the student device is within the school or classroom network, although not the exact distance from the lecturer.
 
 ## Can the Lecturer Create an Open Wi-Fi?
 
@@ -153,13 +157,13 @@ Limitation:
 
 ## Recommended Use in This Project
 
-For now, Wi-Fi should be treated as a possible third verification channel:
+For now, Wi-Fi is treated as a fallback verification channel:
 
 ```text
 Attendance proof may be accepted through:
-- Acoustic signal, or
 - BLE signal, or
-- Wi-Fi classroom-network verification
+- Acoustic signal, or
+- Wi-Fi/LAN fallback verification
 ```
 
 However, Wi-Fi should be added carefully because it proves network presence, not direct lecturer proximity.
@@ -192,7 +196,15 @@ Accept if:
 
 ## Suggested Validation Logic
 
-If Wi-Fi is added later, the backend can score it like this:
+The backend currently treats Wi-Fi/LAN proof like this:
+
+- Student app generates a short proof for the latest active session.
+- Student submits the proof to the backend immediately.
+- Backend checks that the request came through a private/local network address.
+- Backend still enforces authentication, active session, duplicate prevention, and device binding.
+- The validation report records the proof as `wifi_lan`.
+
+If a stricter Wi-Fi policy is added later, the backend can score it like this:
 
 - Student connected to approved classroom network: positive signal.
 - Student not on approved network: no Wi-Fi proof.
@@ -203,7 +215,7 @@ If Wi-Fi is added later, the backend can score it like this:
 
 Use:
 
-> Wi-Fi can improve classroom coverage where school access points are available, but it provides network-level presence rather than exact physical proximity. Therefore, it is best used as an additional verification layer together with BLE, acoustic signals, freshness checks, and device-trust validation.
+> Wi-Fi/LAN is included as a fallback support layer. It can help when a classroom network is available, but it provides network-level presence rather than exact physical proximity. BLE remains the main practical classroom proximity channel, acoustic remains short-range copresence evidence, and backend validation still enforces freshness, duplicate prevention, and device trust.
 
 Avoid:
 
@@ -215,15 +227,15 @@ For the current seminar and near-term build:
 
 1. Keep Acoustic and BLE as the implemented proximity channels.
 2. Use APK + LAN for realistic demonstration without USB.
-3. Add Wi-Fi verification as a documented scalability option.
-4. Consider implementing Wi-Fi only after device binding and BLE reliability are stable.
+3. Use Wi-Fi/LAN verification only as a fallback proof path where acoustic/BLE range is weak or unavailable.
+4. Continue treating Wi-Fi as classroom-network evidence, not exact distance measurement.
 
 ## Current Recommendation
 
-Wi-Fi should be discussed as a strong future enhancement, not as an immediate replacement for BLE and Acoustic.
+Wi-Fi should be discussed as an implemented supporting enhancement, not as a replacement for BLE and Acoustic.
 
 For the current build:
 
 - Use Wi-Fi/LAN to connect the APK to the backend.
-- Use BLE/Acoustic to verify attendance proximity.
-- Later, add classroom Wi-Fi verification as a third signal if needed.
+- Use BLE/Acoustic to verify short-range proximity where available.
+- Use Wi-Fi/LAN proof as a minimal classroom-network fallback, especially for APK demonstration and controlled exception handling.

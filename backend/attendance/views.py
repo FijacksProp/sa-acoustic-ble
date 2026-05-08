@@ -193,6 +193,9 @@ class AttendanceValidationReportAPIView(APIView):
     BLE_PATTERN = re.compile(
         r"^ble\|(?P<session>\d+)\|(?P<issued>\d{10})\|(?P<nonce>[A-Za-z0-9_]+)$"
     )
+    WIFI_PATTERN = re.compile(
+        r"^wifi\|(?P<session>\d+)\|(?P<issued>\d{10})$"
+    )
     EXPIRY_SECONDS = 60
 
     def get(self, request):
@@ -241,8 +244,10 @@ class AttendanceValidationReportAPIView(APIView):
 
         acoustic_token = proof.acoustic_token.strip()
         ble_nonce = proof.ble_nonce.strip()
+        wifi_proof = proof.wifi_proof.strip()
         am = self.ACOUSTIC_PATTERN.match(acoustic_token) if acoustic_token else None
         bm = self.BLE_PATTERN.match(ble_nonce) if ble_nonce else None
+        wm = self.WIFI_PATTERN.match(wifi_proof) if wifi_proof else None
         if am:
             passed.append("Acoustic format")
         elif acoustic_token:
@@ -255,9 +260,16 @@ class AttendanceValidationReportAPIView(APIView):
             failed.append("BLE format")
         else:
             passed.append("BLE not supplied")
+        if wm:
+            passed.append("Wi-Fi/LAN format")
+        elif wifi_proof:
+            failed.append("Wi-Fi/LAN format")
+        else:
+            passed.append("Wi-Fi/LAN not supplied")
 
         ac_age = None
         ble_age = None
+        wifi_age = None
         if am:
             ac_session = int(am.group("session"))
             ac_issued = datetime.fromtimestamp(int(am.group("issued")), tz=dt_timezone.utc)
@@ -282,13 +294,33 @@ class AttendanceValidationReportAPIView(APIView):
                 passed.append("BLE freshness")
             else:
                 failed.append("BLE freshness")
+        if wm:
+            wifi_session = int(wm.group("session"))
+            wifi_issued = datetime.fromtimestamp(int(wm.group("issued")), tz=dt_timezone.utc)
+            wifi_age = int((now - wifi_issued).total_seconds())
+            if wifi_session == proof.session_id:
+                passed.append("Wi-Fi/LAN session match")
+            else:
+                failed.append("Wi-Fi/LAN session mismatch")
+            if 0 <= wifi_age <= self.EXPIRY_SECONDS:
+                passed.append("Wi-Fi/LAN freshness")
+            else:
+                failed.append("Wi-Fi/LAN freshness")
 
-        if am and bm:
-            passed.append("Proof path: dual_signal")
+        if am and bm and wm:
+            passed.append("Proof path: acoustic_ble_wifi")
+        elif am and bm:
+            passed.append("Proof path: acoustic_ble")
+        elif am and wm:
+            passed.append("Proof path: acoustic_wifi")
+        elif bm and wm:
+            passed.append("Proof path: ble_wifi")
         elif am:
             passed.append("Proof path: acoustic_only")
         elif bm:
             passed.append("Proof path: ble_only")
+        elif wm:
+            passed.append("Proof path: wifi_lan")
         else:
             failed.append("Proof path missing")
 
@@ -304,6 +336,8 @@ class AttendanceValidationReportAPIView(APIView):
             "observed_at": proof.observed_at,
             "acoustic_age_seconds": ac_age,
             "ble_age_seconds": ble_age,
+            "wifi_age_seconds": wifi_age,
+            "wifi_client_ip": proof.wifi_client_ip,
             "face_verification_status": proof.face_verification_status,
             "attendance_face_image_base64": proof.attendance_face_image_base64,
             "enrolled_face_image_base64": (

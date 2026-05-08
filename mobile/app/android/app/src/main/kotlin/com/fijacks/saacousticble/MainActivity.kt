@@ -21,6 +21,8 @@ class MainActivity : FlutterActivity() {
     private val requestBleAdvertisePermissionCode = 1204
     private val requestBleConnectPermissionCode = 1205
     private val requestBleScanPermissionCode = 1206
+    private val requestStudentScanPermissionsCode = 1207
+    private val requestLecturerBroadcastPermissionsCode = 1208
     private var latestAcousticToken: String? = null
     private var latestBleNonce: String? = null
     private val acousticTransmitter = AcousticTransmitter()
@@ -101,6 +103,12 @@ class MainActivity : FlutterActivity() {
                                 "status" to status
                             )
                         )
+                    }
+                    "ensureStudentScanPermissions" -> {
+                        result.success(ensureStudentScanPermissions())
+                    }
+                    "ensureLecturerBroadcastPermissions" -> {
+                        result.success(ensureLecturerBroadcastPermissions())
                     }
                     "startAcousticScan" -> {
                         if (!hasRecordAudioPermission()) {
@@ -215,6 +223,84 @@ class MainActivity : FlutterActivity() {
         return "ble_scan_ready"
     }
 
+    private fun ensureStudentScanPermissions(): Map<String, Any> {
+        val missingLabels = mutableListOf<String>()
+        val missingPermissions = mutableListOf<String>()
+
+        if (!hasRecordAudioPermission()) {
+            missingLabels.add("microphone")
+            missingPermissions.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (!hasBleScanPermission()) {
+            missingLabels.add(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "nearby_devices" else "location")
+            missingPermissions.add(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Manifest.permission.BLUETOOTH_SCAN
+                } else {
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                }
+            )
+        }
+        if (!hasBleConnectPermission()) {
+            missingLabels.add("nearby_devices")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                missingPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
+        if (!hasFineLocationPermission()) {
+            missingLabels.add("location")
+            missingPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        val uniquePermissions = missingPermissions.distinct()
+        if (uniquePermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                uniquePermissions.toTypedArray(),
+                requestStudentScanPermissionsCode
+            )
+        }
+
+        return mapOf(
+            "ready" to missingLabels.isEmpty(),
+            "status" to if (missingLabels.isEmpty()) "permissions_ready" else "permissions_missing",
+            "missing" to missingLabels.distinct()
+        )
+    }
+
+    private fun ensureLecturerBroadcastPermissions(): Map<String, Any> {
+        val missingLabels = mutableListOf<String>()
+        val missingPermissions = mutableListOf<String>()
+
+        if (!hasBleAdvertisePermission()) {
+            missingLabels.add("nearby_devices")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                missingPermissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+            }
+        }
+        if (!hasBleConnectPermission()) {
+            missingLabels.add("nearby_devices")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                missingPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
+
+        val uniquePermissions = missingPermissions.distinct()
+        if (uniquePermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                uniquePermissions.toTypedArray(),
+                requestLecturerBroadcastPermissionsCode
+            )
+        }
+
+        return mapOf(
+            "ready" to missingLabels.isEmpty(),
+            "status" to if (missingLabels.isEmpty()) "permissions_ready" else "permissions_missing",
+            "missing" to missingLabels.distinct()
+        )
+    }
+
     private fun hasBleScanPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(
@@ -227,6 +313,13 @@ class MainActivity : FlutterActivity() {
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         }
+    }
+
+    private fun hasFineLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun requestBleScanPermission() {

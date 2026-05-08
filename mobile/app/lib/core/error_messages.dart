@@ -31,6 +31,19 @@ String friendlyErrorMessage(
     return 'Attendance has already been submitted for this session.';
   }
 
+  if (lower.contains('wi-fi') || lower.contains('wifi')) {
+    if (lower.contains('local private network') ||
+        lower.contains('lan proof requires')) {
+      return 'Connect to the lecturer/classroom Wi-Fi or hotspot, then try Wi-Fi/LAN verification again.';
+    }
+    if (lower.contains('expired')) {
+      return 'The Wi-Fi/LAN proof expired. Tap Verify Wi-Fi/LAN again and submit immediately.';
+    }
+    if (lower.contains('no active session')) {
+      return 'No active class session is available for Wi-Fi/LAN verification.';
+    }
+  }
+
   if (lower.contains('already registered') || lower.contains('already exists')) {
     return 'This account already exists. Try logging in instead.';
   }

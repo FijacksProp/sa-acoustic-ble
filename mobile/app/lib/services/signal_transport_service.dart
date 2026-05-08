@@ -102,4 +102,48 @@ class SignalTransportService {
       };
     }
   }
+
+  Future<Map<String, dynamic>?> ensureStudentScanPermissions() async {
+    try {
+      final map = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'ensureStudentScanPermissions',
+      );
+      if (map == null) {
+        return null;
+      }
+      return map.map((key, value) => MapEntry('$key', value));
+    } on PlatformException catch (error) {
+      return {
+        'ready': false,
+        'status': error.code,
+      };
+    } on MissingPluginException {
+      return {
+        'ready': false,
+        'status': 'native_plugin_unavailable',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>?> ensureLecturerBroadcastPermissions() async {
+    try {
+      final map = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'ensureLecturerBroadcastPermissions',
+      );
+      if (map == null) {
+        return null;
+      }
+      return map.map((key, value) => MapEntry('$key', value));
+    } on PlatformException catch (error) {
+      return {
+        'ready': false,
+        'status': error.code,
+      };
+    } on MissingPluginException {
+      return {
+        'ready': false,
+        'status': 'native_plugin_unavailable',
+      };
+    }
+  }
 }

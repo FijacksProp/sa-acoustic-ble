@@ -45,6 +45,8 @@ class AttendanceProof(models.Model):
 
     acoustic_token = models.CharField(max_length=128)
     ble_nonce = models.CharField(max_length=128)
+    wifi_proof = models.CharField(max_length=128, blank=True)
+    wifi_client_ip = models.GenericIPAddressField(null=True, blank=True)
     rssi = models.IntegerField()
 
     observed_at = models.DateTimeField()

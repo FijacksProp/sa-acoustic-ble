@@ -60,6 +60,8 @@ class AttendanceProofAdmin(admin.ModelAdmin):
         "signature",
         "acoustic_token",
         "ble_nonce",
+        "wifi_proof",
+        "wifi_client_ip",
         "device_trust_status",
         "device_trust_detail",
         "student_name",
@@ -98,6 +100,8 @@ class AttendanceProofAdmin(admin.ModelAdmin):
                     "scan_mode",
                     "acoustic_token",
                     "ble_nonce",
+                    "wifi_proof",
+                    "wifi_client_ip",
                     "rssi",
                     "signature",
                 )
@@ -133,12 +137,16 @@ class AttendanceProofAdmin(admin.ModelAdmin):
     def scan_mode(self, obj):
         has_acoustic = bool(obj.acoustic_token.strip())
         has_ble = bool(obj.ble_nonce.strip())
-        if has_acoustic and has_ble:
-            return "Acoustic + BLE"
+        has_wifi = bool(obj.wifi_proof.strip())
+        modes = []
         if has_acoustic:
-            return "Acoustic"
+            modes.append("Acoustic")
         if has_ble:
-            return "BLE"
+            modes.append("BLE")
+        if has_wifi:
+            modes.append("Wi-Fi/LAN")
+        if modes:
+            return " + ".join(modes)
         return "Unknown"
 
 

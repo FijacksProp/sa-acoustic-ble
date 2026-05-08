@@ -12,7 +12,7 @@ The main advantage of this project is that it uses devices many users already ha
 
 - Student Android phones.
 - Lecturer Android phone or laptop.
-- Existing school Wi-Fi or local network.
+- Existing school Wi-Fi or local network for backend access or fallback verification.
 - Backend server that can run on a school server or cloud host.
 
 This reduces the need for dedicated attendance hardware in the basic version.
@@ -76,7 +76,7 @@ Possible additions:
 - Central cloud or school server.
 - Admin dashboard.
 - Department-level lecturer/student management.
-- Classroom BLE beacons or Wi-Fi integration.
+- Classroom BLE beacons and optional Wi-Fi/LAN fallback integration.
 - Technical support and maintenance.
 - Data backup and security policies.
 
@@ -108,11 +108,11 @@ These are rough planning estimates in Nigerian Naira as of May 2026. Prices can 
 
 | Item | Estimated Unit Cost | Notes |
 | --- | --- | --- |
-| Basic portable MiFi | ₦25,000-₦70,000 | Useful for demo or small groups; many support around 10 devices |
-| Stronger 4G classroom router | ₦90,000-₦200,000 | Better for classroom LAN; some models support dozens of devices |
-| BLE beacon | ₦15,000-₦35,000 per beacon | Imported beacons may be cheaper before shipping; local delivered prices can be higher |
-| Entry-level Android phone | ₦80,000-₦180,000 | Usually not purchased by school if students use personal phones |
-| Backend hosting | ₦5,000-₦25,000 per month | Depends on VPS/cloud provider and traffic |
+| Basic portable MiFi | NGN 25,000-NGN 70,000 | Useful for demo or small groups; many support around 10 devices |
+| Stronger 4G classroom router | NGN 90,000-NGN 200,000 | Better for classroom LAN; some models support dozens of devices |
+| BLE beacon | NGN 15,000-NGN 35,000 per beacon | Useful for improving BLE coverage in medium and large rooms |
+| Entry-level Android phone | NGN 80,000-NGN 180,000 | Usually not purchased by school if students use personal phones |
+| Backend hosting | NGN 5,000-NGN 25,000 per month | Depends on VPS/cloud provider and traffic |
 | Local school server option | Variable | Can be cheaper if the school already has servers |
 | App maintenance/developer support | Variable | Depends on whether school has in-house IT support |
 
@@ -124,38 +124,38 @@ These examples are for planning discussion only.
 
 | Item | Quantity | Estimated Cost |
 | --- | --- | --- |
-| Existing lecturer laptop | 1 | ₦0 if already available |
-| Existing Android phones | 2-5 | ₦0 if already available |
-| Portable MiFi or phone hotspot | 1 | ₦0-₦70,000 |
-| Backend on lecturer laptop | 1 | ₦0 |
-| Total | - | About ₦0-₦70,000 |
+| Existing lecturer laptop | 1 | NGN 0 if already available |
+| Existing Android phones | 2-5 | NGN 0 if already available |
+| Portable MiFi or phone hotspot | 1 | NGN 0-NGN 70,000 |
+| Backend on lecturer laptop | 1 | NGN 0 |
+| Total | - | About NGN 0-NGN 70,000 |
 
 ### Small Classroom Pilot
 
 | Item | Quantity | Estimated Cost |
 | --- | --- | --- |
-| 4G router or reliable classroom AP | 1 | ₦90,000-₦200,000 |
-| BLE beacons | 0-2 | ₦0-₦70,000 |
-| Backend hosting | 1 month | ₦5,000-₦25,000 |
-| Total | - | About ₦95,000-₦295,000 |
+| 4G router or reliable classroom AP | 1 | NGN 90,000-NGN 200,000 |
+| BLE beacons | 0-2 | NGN 0-NGN 70,000 |
+| Backend hosting | 1 month | NGN 5,000-NGN 25,000 |
+| Total | - | About NGN 95,000-NGN 295,000 |
 
 ### Medium Classroom Pilot
 
 | Item | Quantity | Estimated Cost |
 | --- | --- | --- |
-| 4G router or access point | 1 | ₦90,000-₦200,000 |
-| BLE beacons | 2-4 | ₦30,000-₦140,000 |
-| Backend hosting | 1 month | ₦5,000-₦25,000 |
-| Total | - | About ₦125,000-₦365,000 |
+| 4G router or access point | 1 | NGN 90,000-NGN 200,000 |
+| BLE beacons | 2-4 | NGN 30,000-NGN 140,000 |
+| Backend hosting | 1 month | NGN 5,000-NGN 25,000 |
+| Total | - | About NGN 125,000-NGN 365,000 |
 
 ### Large Lecture Hall Extension
 
 | Item | Quantity | Estimated Cost |
 | --- | --- | --- |
-| Classroom access points | 1-2 | ₦180,000-₦400,000 |
-| BLE beacons | 4-8 | ₦60,000-₦280,000 |
-| Backend hosting | 1 month | ₦5,000-₦25,000 |
-| Total | - | About ₦245,000-₦705,000 |
+| Classroom access points | 1-2 | NGN 180,000-NGN 400,000 |
+| BLE beacons | 4-8 | NGN 60,000-NGN 280,000 |
+| Backend hosting | 1 month | NGN 5,000-NGN 25,000 |
+| Total | - | About NGN 245,000-NGN 705,000 |
 
 ## Cost Interpretation
 
@@ -163,10 +163,17 @@ The lowest-cost version is possible because students and lecturers already have 
 
 In that case, cost comes mainly from:
 
-- Dedicated Wi-Fi/router infrastructure.
+- Optional Wi-Fi/router infrastructure for backend access and fallback verification.
 - Fixed BLE beacons.
 - Backend hosting or server maintenance.
 - Technical support.
+
+Current prototype interpretation:
+
+- The basic Android-phone demonstration can be done with almost no new hardware if the phones and laptop are already available.
+- BLE is now the stronger practical signal after permissions are correctly enabled.
+- Fixed BLE beacons are the most relevant optional hardware upgrade for larger rooms.
+- Wi-Fi should be treated as fallback network support rather than the main attendance technology.
 
 ## Possible Cost Components
 
@@ -204,12 +211,14 @@ Cost depends on:
 - Number of beacons per room.
 - Battery-powered or USB-powered beacons.
 - Beacon quality and range.
+- Transmit power and advertising interval.
+- Whether the beacon supports iBeacon/Eddystone/custom BLE advertising configuration.
 
 For larger rooms, multiple beacons may be needed.
 
 ### Network Infrastructure
 
-If Wi-Fi verification is adopted, the school may need:
+If Wi-Fi/LAN fallback verification is adopted, the school may need:
 
 - Reliable classroom Wi-Fi.
 - Router/access point management.
@@ -242,7 +251,7 @@ The best adoption path is gradual:
 
 Recommended wording:
 
-> The basic version has low deployment cost because it uses existing student and lecturer smartphones. For larger classrooms, the cost may increase if fixed BLE beacons or classroom network infrastructure are added. Even with these additions, the system can still be more affordable and flexible than biometric or RFID-based systems because it reduces dependence on dedicated attendance terminals and physical cards.
+> The basic version has low deployment cost because it uses existing student and lecturer smartphones. For larger classrooms, the most relevant extra cost is fixed BLE beacons, while classroom network infrastructure may support backend access or Wi-Fi/LAN fallback. Even with these additions, the system can still be more affordable and flexible than biometric or RFID-based systems because it reduces dependence on dedicated attendance terminals and physical cards.
 
 ## Important Note
 
