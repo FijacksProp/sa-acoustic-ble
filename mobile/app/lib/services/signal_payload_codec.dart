@@ -34,6 +34,18 @@ class SignalPayloadCodec {
     ].join('|');
   }
 
+  static String buildEddystoneBeaconProof({
+    required String namespaceId,
+    required String instanceId,
+  }) {
+    return [
+      'beacon',
+      'eddystone_uid',
+      namespaceId.toLowerCase(),
+      instanceId.toLowerCase(),
+    ].join('|');
+  }
+
   static AcousticPayload? parseAcousticToken(String raw) {
     final parts = raw.split('|');
     if (parts.length == 4 && parts[0] == 'ac2') {

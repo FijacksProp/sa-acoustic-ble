@@ -9,7 +9,13 @@ from rest_framework.authtoken.models import Token
 from rest_framework import serializers
 from django.db import IntegrityError
 
-from .models import AttendanceProof, Session, UserProfile, AttendanceReplayGuard
+from .models import (
+    AttendanceProof,
+    AttendanceReplayGuard,
+    RegisteredBeacon,
+    Session,
+    UserProfile,
+)
 
 
 class SessionSerializer(serializers.ModelSerializer):
@@ -31,10 +37,19 @@ class SessionSerializer(serializers.ModelSerializer):
             "starts_at",
             "ends_at",
             "active",
+            "attendance_open",
+            "attendance_opened_at",
+            "attendance_closes_at",
             "token_version",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "attendance_open",
+            "attendance_opened_at",
+            "attendance_closes_at",
+        ]
 
 
 class AttendanceProofSerializer(serializers.ModelSerializer):
@@ -52,12 +67,18 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
     WIFI_PATTERN = re.compile(
         r"^wifi\|(?P<session>\d+)\|(?P<issued>\d{10})$"
     )
+    BEACON_PATTERN = re.compile(
+        r"^beacon\|(?P<type>eddystone_uid|ibeacon)\|(?P<a>[A-Fa-f0-9-]+)\|(?P<b>[A-Fa-f0-9]+)\|?(?P<c>[A-Fa-f0-9]*)$"
+    )
 
     student_name = serializers.SerializerMethodField()
     course_code = serializers.CharField(source="session.course_code", read_only=True)
     course_title = serializers.CharField(source="session.course_title", read_only=True)
     lecturer_name = serializers.CharField(source="session.lecturer_name", read_only=True)
     room = serializers.CharField(source="session.room", read_only=True)
+    registered_beacon_name = serializers.CharField(
+        source="registered_beacon.name", read_only=True
+    )
     face_verification_status = serializers.CharField(required=False)
     face_match_score = serializers.FloatField(required=False)
 
@@ -79,6 +100,16 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "ble_nonce",
             "wifi_proof",
             "wifi_client_ip",
+            "beacon_proof",
+            "beacon_type",
+            "beacon_uuid",
+            "beacon_major",
+            "beacon_minor",
+            "beacon_namespace_id",
+            "beacon_instance_id",
+            "beacon_rssi",
+            "registered_beacon",
+            "registered_beacon_name",
             "rssi",
             "observed_at",
             "signature",
@@ -93,11 +124,20 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             "device_trust_status",
             "device_trust_detail",
             "wifi_client_ip",
+            "beacon_type",
+            "beacon_uuid",
+            "beacon_major",
+            "beacon_minor",
+            "beacon_namespace_id",
+            "beacon_instance_id",
+            "registered_beacon",
+            "registered_beacon_name",
         ]
         extra_kwargs = {
             "acoustic_token": {"allow_blank": True},
             "ble_nonce": {"allow_blank": True},
             "wifi_proof": {"allow_blank": True},
+            "beacon_proof": {"allow_blank": True},
             "attendance_face_image_base64": {"allow_blank": True},
         }
 
@@ -121,6 +161,18 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"session": "Selected session is not active."}
             )
+        if not session.attendance_open:
+            raise serializers.ValidationError(
+                {
+                    "session": (
+                        "Attendance is not open yet. Wait for the lecturer to start broadcast."
+                    )
+                }
+            )
+        if session.attendance_closes_at and now > session.attendance_closes_at:
+            raise serializers.ValidationError(
+                {"session": "Attendance window has closed for this session."}
+            )
         if not session.created_by or session.created_by.role != UserProfile.ROLE_LECTURER:
             raise serializers.ValidationError(
                 {"session": "Session must belong to an active lecturer owner."}
@@ -129,12 +181,14 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         acoustic = attrs["acoustic_token"].strip()
         ble = attrs["ble_nonce"].strip()
         wifi = attrs.get("wifi_proof", "").strip()
+        beacon = attrs.get("beacon_proof", "").strip()
         acoustic_match = self.ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
         compact_acoustic_match = (
             self.COMPACT_ACOUSTIC_PATTERN.match(acoustic) if acoustic else None
         )
         ble_match = self.BLE_PATTERN.match(ble) if ble else None
         wifi_match = self.WIFI_PATTERN.match(wifi) if wifi else None
+        beacon_match = self.BEACON_PATTERN.match(beacon) if beacon else None
         if acoustic and not acoustic_match and not compact_acoustic_match:
             raise serializers.ValidationError(
                 {"acoustic_token": "Invalid acoustic token format."}
@@ -143,14 +197,19 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"ble_nonce": "Invalid BLE nonce format."})
         if wifi and not wifi_match:
             raise serializers.ValidationError({"wifi_proof": "Invalid Wi-Fi proof format."})
+        if beacon and not beacon_match:
+            raise serializers.ValidationError(
+                {"beacon_proof": "Invalid BLE beacon proof format."}
+            )
         if (
             not acoustic_match
             and not compact_acoustic_match
             and not ble_match
             and not wifi_match
+            and not beacon_match
         ):
             raise serializers.ValidationError(
-                "Provide at least one valid attendance signal: acoustic, BLE, or Wi-Fi/LAN."
+                "Provide at least one valid attendance signal: acoustic, BLE, beacon, or Wi-Fi/LAN."
             )
 
         challenge_token = ""
@@ -218,6 +277,10 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
                 )
             attrs["wifi_client_ip"] = remote_addr
 
+        if beacon_match:
+            registered_beacon = self._validate_beacon(session, beacon_match, attrs)
+            attrs["registered_beacon"] = registered_beacon
+
         attrs["_decoded_challenge_token"] = challenge_token
         attrs["_decoded_ble_nonce"] = ble_nonce_value
         if AttendanceReplayGuard.objects.filter(
@@ -241,6 +304,7 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         attrs["acoustic_token"] = attrs["acoustic_token"].strip()
         attrs["ble_nonce"] = attrs["ble_nonce"].strip()
         attrs["wifi_proof"] = attrs.get("wifi_proof", "").strip()
+        attrs["beacon_proof"] = attrs.get("beacon_proof", "").strip()
         attrs["signature"] = attrs["signature"].strip()
         attrs["attendance_face_image_base64"] = attrs.get(
             "attendance_face_image_base64", ""
@@ -251,6 +315,62 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
         )
         attrs["face_match_score"] = float(attrs.get("face_match_score") or 0)
         return attrs
+
+    def _validate_beacon(self, session, beacon_match, attrs):
+        beacon_type = beacon_match.group("type").lower()
+        if beacon_type == RegisteredBeacon.BEACON_TYPE_EDDYSTONE_UID:
+            namespace_id = beacon_match.group("a").lower()
+            instance_id = beacon_match.group("b").lower()
+            registered_beacon = RegisteredBeacon.objects.filter(
+                active=True,
+                beacon_type=RegisteredBeacon.BEACON_TYPE_EDDYSTONE_UID,
+                namespace_id__iexact=namespace_id,
+                instance_id__iexact=instance_id,
+            ).first()
+            attrs["beacon_type"] = beacon_type
+            attrs["beacon_namespace_id"] = namespace_id
+            attrs["beacon_instance_id"] = instance_id
+        else:
+            uuid = beacon_match.group("a").lower()
+            major = int(beacon_match.group("b"))
+            minor = int(beacon_match.group("c") or 0)
+            registered_beacon = RegisteredBeacon.objects.filter(
+                active=True,
+                beacon_type=RegisteredBeacon.BEACON_TYPE_IBEACON,
+                uuid__iexact=uuid,
+                major=major,
+                minor=minor,
+            ).first()
+            attrs["beacon_type"] = beacon_type
+            attrs["beacon_uuid"] = uuid
+            attrs["beacon_major"] = major
+            attrs["beacon_minor"] = minor
+
+        if registered_beacon is None:
+            raise serializers.ValidationError(
+                {"beacon_proof": "This BLE beacon is not registered for attendance."}
+            )
+
+        session_room = (session.room or "").strip().lower()
+        beacon_room = (registered_beacon.room or "").strip().lower()
+        if beacon_room and session_room and beacon_room != session_room:
+            raise serializers.ValidationError(
+                {
+                    "beacon_proof": (
+                        "Detected BLE beacon is not assigned to this session room."
+                    )
+                }
+            )
+
+        beacon_rssi = attrs.get("beacon_rssi")
+        if beacon_rssi is None:
+            beacon_rssi = attrs.get("rssi")
+        if beacon_rssi is not None and beacon_rssi < registered_beacon.min_rssi:
+            raise serializers.ValidationError(
+                {"beacon_rssi": "BLE beacon signal is too weak for attendance."}
+            )
+        attrs["beacon_rssi"] = beacon_rssi
+        return registered_beacon
 
     def create(self, validated_data):
         challenge_token = validated_data.pop("_decoded_challenge_token", None)

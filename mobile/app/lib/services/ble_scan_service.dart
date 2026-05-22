@@ -11,7 +11,10 @@ import 'signal_transport_service.dart';
 
 class BleScanService {
   static const String _serviceUuid = '0000aa91-0000-1000-8000-00805f9b34fb';
+  static const String _eddystoneServiceUuid =
+      '0000feaa-0000-1000-8000-00805f9b34fb';
   static const int _manufacturerId = 0x0A91;
+  static const int _appleManufacturerId = 0x004C;
   static const Duration _scanWindow = Duration(milliseconds: 2500);
   static const Duration _betweenWindows = Duration(milliseconds: 180);
   final _transport = SignalTransportService();
@@ -129,6 +132,26 @@ class BleScanService {
       final manufacturerData = strongest.advertisementData.manufacturerData;
       final serviceData = strongest.advertisementData.serviceData;
       final scanSummary = _scanSummary(results);
+      final beaconHit = _findBestRegisteredBeacon(results);
+
+      if (beaconHit != null) {
+        return ScanResultModel(
+          acousticToken: '',
+          observedAt: now,
+          bleNonce: null,
+          rssi: beaconHit.rssi,
+          beaconProof: beaconHit.proof,
+          beaconType: beaconHit.type,
+          beaconUuid: beaconHit.uuid,
+          beaconMajor: beaconHit.major,
+          beaconMinor: beaconHit.minor,
+          beaconNamespaceId: beaconHit.namespaceId,
+          beaconInstanceId: beaconHit.instanceId,
+          source: beaconHit.source,
+          diagnostic:
+              'Registered beacon candidate detected. ${_rssiQuality(beaconHit.rssi)} ${beaconHit.diagnostic} $scanSummary',
+        );
+      }
 
       return ScanResultModel(
         acousticToken: '',
@@ -219,6 +242,51 @@ class BleScanService {
     return null;
   }
 
+  _ParsedBeaconHit? _findBestRegisteredBeacon(List<ScanResult> results) {
+    for (final result in results) {
+      final iBeacon = _parseIBeacon(
+        result.advertisementData.manufacturerData[_appleManufacturerId],
+      );
+      if (iBeacon != null) {
+        return _ParsedBeaconHit(
+          proof: 'beacon|ibeacon|${iBeacon.uuid}|${iBeacon.major}|${iBeacon.minor}',
+          type: 'ibeacon',
+          uuid: iBeacon.uuid,
+          major: iBeacon.major,
+          minor: iBeacon.minor,
+          namespaceId: null,
+          instanceId: null,
+          rssi: result.rssi,
+          source: 'ble_scan_beacon_ibeacon',
+          diagnostic:
+              'iBeacon UUID ${iBeacon.uuid}, major ${iBeacon.major}, minor ${iBeacon.minor}.',
+        );
+      }
+
+      final eddystone = _parseEddystoneUid(result.advertisementData.serviceData);
+      if (eddystone != null) {
+        final proof = SignalPayloadCodec.buildEddystoneBeaconProof(
+          namespaceId: eddystone.namespaceId,
+          instanceId: eddystone.instanceId,
+        );
+        return _ParsedBeaconHit(
+          proof: proof,
+          type: 'eddystone_uid',
+          uuid: null,
+          major: null,
+          minor: null,
+          namespaceId: eddystone.namespaceId,
+          instanceId: eddystone.instanceId,
+          rssi: result.rssi,
+          source: 'ble_scan_beacon_eddystone_uid',
+          diagnostic:
+              'Eddystone UID namespace ${eddystone.namespaceId}, instance ${eddystone.instanceId}.',
+        );
+      }
+    }
+    return null;
+  }
+
   String? _decodeManufacturerPayload(Map<int, List<int>> manufacturerData) {
     final bytes = manufacturerData[_manufacturerId];
     if (bytes == null || bytes.length < 16) {
@@ -270,6 +338,81 @@ class BleScanService {
     return 'Seen=${results.length}, named=$namedDeviceCount, manufacturerAds=$manufacturerAdvertisementCount, serviceAds=$serviceAdvertisementCount, strongestRssi=$strongestRssi, manufacturerIds=$ids, expectedManufacturerId=0xa91.';
   }
 
+  _IBeaconFrame? _parseIBeacon(List<int>? bytes) {
+    if (bytes == null || bytes.length < 23) {
+      return null;
+    }
+    int? offset;
+    for (var i = 0; i <= bytes.length - 23; i += 1) {
+      if (bytes[i] == 0x02 && bytes[i + 1] == 0x15) {
+        offset = i;
+        break;
+      }
+    }
+    if (offset == null) {
+      return null;
+    }
+    final uuidBytes = bytes.sublist(offset + 2, offset + 18);
+    final major = _readUInt16(bytes, offset + 18);
+    final minor = _readUInt16(bytes, offset + 20);
+    final txPowerByte = bytes[offset + 22];
+    final txPower = txPowerByte > 127 ? txPowerByte - 256 : txPowerByte;
+    if (major == null || minor == null) {
+      return null;
+    }
+    return _IBeaconFrame(
+      uuid: _formatUuid(uuidBytes),
+      major: major,
+      minor: minor,
+      txPower: txPower,
+    );
+  }
+
+  _EddystoneUidFrame? _parseEddystoneUid(Map<Guid, List<int>> serviceData) {
+    for (final entry in serviceData.entries) {
+      if (entry.key.str128.toLowerCase() != _eddystoneServiceUuid) {
+        continue;
+      }
+      final bytes = entry.value;
+      if (bytes.length < 18 || bytes[0] != 0x00) {
+        continue;
+      }
+      final txPowerByte = bytes[1];
+      final txPower = txPowerByte > 127 ? txPowerByte - 256 : txPowerByte;
+      return _EddystoneUidFrame(
+        namespaceId: _bytesToCompactHex(bytes.sublist(2, 12)),
+        instanceId: _bytesToCompactHex(bytes.sublist(12, 18)),
+        txPower: txPower,
+      );
+    }
+    return null;
+  }
+
+  String _bytesToCompactHex(List<int> bytes) {
+    return bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  String _formatUuid(List<int> bytes) {
+    final hex = bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    if (hex.length != 32) {
+      return hex;
+    }
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-'
+        '${hex.substring(20, 32)}';
+  }
+
+  int? _readUInt16(List<int> bytes, int offset) {
+    if (bytes.length < offset + 2) {
+      return null;
+    }
+    return ((bytes[offset] & 0xff) << 8) | (bytes[offset + 1] & 0xff);
+  }
+
   void _mergeResults(Map<String, ScanResult> seen, List<ScanResult> results) {
     for (final result in results) {
       final key = result.device.remoteId.str;
@@ -308,4 +451,56 @@ class _ParsedBleHit {
   final int rssi;
   final String source;
   final String diagnostic;
+}
+
+class _ParsedBeaconHit {
+  const _ParsedBeaconHit({
+    required this.proof,
+    required this.type,
+    required this.uuid,
+    required this.major,
+    required this.minor,
+    required this.namespaceId,
+    required this.instanceId,
+    required this.rssi,
+    required this.source,
+    required this.diagnostic,
+  });
+
+  final String proof;
+  final String type;
+  final String? uuid;
+  final int? major;
+  final int? minor;
+  final String? namespaceId;
+  final String? instanceId;
+  final int rssi;
+  final String source;
+  final String diagnostic;
+}
+
+class _IBeaconFrame {
+  const _IBeaconFrame({
+    required this.uuid,
+    required this.major,
+    required this.minor,
+    required this.txPower,
+  });
+
+  final String uuid;
+  final int major;
+  final int minor;
+  final int txPower;
+}
+
+class _EddystoneUidFrame {
+  const _EddystoneUidFrame({
+    required this.namespaceId,
+    required this.instanceId,
+    required this.txPower,
+  });
+
+  final String namespaceId;
+  final String instanceId;
+  final int txPower;
 }

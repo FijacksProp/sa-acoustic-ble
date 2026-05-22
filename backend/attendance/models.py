@@ -17,6 +17,9 @@ class Session(models.Model):
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField(null=True, blank=True)
     active = models.BooleanField(default=True)
+    attendance_open = models.BooleanField(default=False)
+    attendance_opened_at = models.DateTimeField(null=True, blank=True)
+    attendance_closes_at = models.DateTimeField(null=True, blank=True)
     token_version = models.CharField(max_length=32, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -47,6 +50,21 @@ class AttendanceProof(models.Model):
     ble_nonce = models.CharField(max_length=128)
     wifi_proof = models.CharField(max_length=128, blank=True)
     wifi_client_ip = models.GenericIPAddressField(null=True, blank=True)
+    beacon_proof = models.CharField(max_length=160, blank=True)
+    beacon_type = models.CharField(max_length=32, blank=True)
+    beacon_uuid = models.CharField(max_length=64, blank=True)
+    beacon_major = models.IntegerField(null=True, blank=True)
+    beacon_minor = models.IntegerField(null=True, blank=True)
+    beacon_namespace_id = models.CharField(max_length=32, blank=True)
+    beacon_instance_id = models.CharField(max_length=32, blank=True)
+    beacon_rssi = models.IntegerField(null=True, blank=True)
+    registered_beacon = models.ForeignKey(
+        "RegisteredBeacon",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="proofs",
+    )
     rssi = models.IntegerField()
 
     observed_at = models.DateTimeField()
@@ -81,6 +99,35 @@ class UserProfile(models.Model):
 
     def __str__(self) -> str:
         return f"{self.matric_number} ({self.role})"
+
+
+class RegisteredBeacon(models.Model):
+    BEACON_TYPE_IBEACON = "ibeacon"
+    BEACON_TYPE_EDDYSTONE_UID = "eddystone_uid"
+    BEACON_TYPE_CHOICES = [
+        (BEACON_TYPE_IBEACON, "iBeacon"),
+        (BEACON_TYPE_EDDYSTONE_UID, "Eddystone UID"),
+    ]
+
+    name = models.CharField(max_length=80)
+    room = models.CharField(max_length=64, blank=True)
+    beacon_type = models.CharField(max_length=32, choices=BEACON_TYPE_CHOICES)
+    uuid = models.CharField(max_length=64, blank=True)
+    major = models.IntegerField(null=True, blank=True)
+    minor = models.IntegerField(null=True, blank=True)
+    namespace_id = models.CharField(max_length=32, blank=True)
+    instance_id = models.CharField(max_length=32, blank=True)
+    rssi_at_1m = models.IntegerField(default=-57)
+    min_rssi = models.IntegerField(default=-90)
+    tx_power_dbm = models.FloatField(default=2.5)
+    advertising_interval_ms = models.IntegerField(default=400)
+    active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        room = f" / {self.room}" if self.room else ""
+        return f"{self.name}{room}"
 
 
 class AttendanceReplayGuard(models.Model):

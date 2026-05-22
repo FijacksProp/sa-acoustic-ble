@@ -13,6 +13,14 @@ class AttendanceProofModel {
     required this.bleNonce,
     this.wifiProof = '',
     this.wifiClientIp,
+    this.beaconProof = '',
+    this.beaconType,
+    this.beaconUuid,
+    this.beaconMajor,
+    this.beaconMinor,
+    this.beaconNamespaceId,
+    this.beaconInstanceId,
+    this.beaconRssi,
     required this.rssi,
     required this.observedAt,
     required this.signature,
@@ -36,6 +44,14 @@ class AttendanceProofModel {
   final String bleNonce;
   final String wifiProof;
   final String? wifiClientIp;
+  final String beaconProof;
+  final String? beaconType;
+  final String? beaconUuid;
+  final int? beaconMajor;
+  final int? beaconMinor;
+  final String? beaconNamespaceId;
+  final String? beaconInstanceId;
+  final int? beaconRssi;
   final int rssi;
   final DateTime observedAt;
   final String signature;
@@ -53,10 +69,14 @@ class AttendanceProofModel {
       'acoustic_token': acousticToken,
       'ble_nonce': bleNonce,
       'wifi_proof': wifiProof,
+      'beacon_proof': beaconProof,
       'rssi': rssi,
       'observed_at': observedAt.toUtc().toIso8601String(),
       'signature': signature,
     };
+    if (beaconRssi != null) {
+      json['beacon_rssi'] = beaconRssi;
+    }
     if ((attendanceFaceImageBase64 ?? '').trim().isNotEmpty) {
       json['attendance_face_image_base64'] = attendanceFaceImageBase64!.trim();
     }
@@ -84,6 +104,14 @@ class AttendanceProofModel {
       bleNonce: json['ble_nonce'] as String? ?? '',
       wifiProof: json['wifi_proof'] as String? ?? '',
       wifiClientIp: json['wifi_client_ip'] as String?,
+      beaconProof: json['beacon_proof'] as String? ?? '',
+      beaconType: json['beacon_type'] as String?,
+      beaconUuid: json['beacon_uuid'] as String?,
+      beaconMajor: (json['beacon_major'] as num?)?.toInt(),
+      beaconMinor: (json['beacon_minor'] as num?)?.toInt(),
+      beaconNamespaceId: json['beacon_namespace_id'] as String?,
+      beaconInstanceId: json['beacon_instance_id'] as String?,
+      beaconRssi: (json['beacon_rssi'] as num?)?.toInt(),
       rssi: json['rssi'] as int? ?? 0,
       observedAt: DateTime.parse(json['observed_at'] as String),
       signature: json['signature'] as String? ?? '',

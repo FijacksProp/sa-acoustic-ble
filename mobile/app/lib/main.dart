@@ -69,8 +69,21 @@ String _friendlyBleResult(ScanResultModel scan, bool trusted) {
     'ble_scan_empty' => 'No nearby BLE broadcast was found. Confirm the lecturer broadcast is running.',
     'ble_scan_unparsed_device' => 'BLE saw nearby devices, but not the lecturer broadcast yet.',
     'ble_scan_error' => 'BLE scan could not start. Check Bluetooth permissions and try again.',
+    'ble_scan_beacon_eddystone_uid' => 'Lecturer BLE was not used; room beacon was captured.',
+    'ble_scan_beacon_ibeacon' => 'Lecturer BLE was not used; room beacon was captured.',
     'web_no_ble' => 'Real BLE scanning is only available on Android.',
-    _ => 'BLE signal was not captured.',
+    _ => 'Lecturer BLE signal was not captured.',
+  };
+}
+
+String _friendlyBeaconResult(ScanResultModel scan, bool trusted) {
+  if (trusted) {
+    return 'Registered beacon signal captured.';
+  }
+  return switch (scan.source) {
+    'ble_scan_beacon_eddystone_uid' => 'Beacon was detected but is not ready for submission.',
+    'ble_scan_beacon_ibeacon' => 'Beacon was detected but is not ready for submission.',
+    _ => 'No registered BLE beacon was captured.',
   };
 }
 
@@ -78,14 +91,17 @@ String _proofScanModeLabel({
   required String acousticToken,
   required String bleNonce,
   String wifiProof = '',
+  String beaconProof = '',
 }) {
   final hasAcoustic = acousticToken.trim().isNotEmpty;
   final hasBle = bleNonce.trim().isNotEmpty;
   final hasWifi = wifiProof.trim().isNotEmpty;
+  final hasBeacon = beaconProof.trim().isNotEmpty;
   final modes = <String>[
     if (hasAcoustic) 'Acoustic',
     if (hasBle) 'BLE',
     if (hasWifi) 'Wi-Fi',
+    if (hasBeacon) 'BLE Beacon',
   ];
   if (modes.isNotEmpty) {
     return modes.join(' + ');
@@ -783,7 +799,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _scanLogService = ScanTestLogService();
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
+  final _bleEvidenceController = TextEditingController();
   final _wifiProofController = TextEditingController();
+  final _beaconProofController = TextEditingController();
   final _rssiController = TextEditingController(text: '-60');
 
   bool _submitting = false;
@@ -821,7 +839,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
   void dispose() {
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
+    _bleEvidenceController.dispose();
     _wifiProofController.dispose();
+    _beaconProofController.dispose();
     _rssiController.dispose();
     super.dispose();
   }
@@ -873,7 +893,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
     if (!_scanEligibleForSubmit) {
       setState(() {
         _statusMessage =
-            'No valid acoustic, BLE, or Wi-Fi/LAN attendance path is ready yet.';
+            'No valid acoustic, BLE, beacon, or Wi-Fi/LAN attendance path is ready yet.';
       });
       _showFeedback('No valid attendance path is ready yet. Run a fresh scan.');
       return;
@@ -888,7 +908,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
     }
     final hasSignalData = _acousticTokenController.text.trim().isNotEmpty ||
         _bleNonceController.text.trim().isNotEmpty ||
-        _wifiProofController.text.trim().isNotEmpty;
+        _wifiProofController.text.trim().isNotEmpty ||
+        _beaconProofController.text.trim().isNotEmpty;
     if (!hasSignalData) {
       setState(() {
         _statusMessage = 'No signal data from scan. Please scan again.';
@@ -913,6 +934,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       acousticToken: _acousticTokenController.text.trim(),
       bleNonce: _bleNonceController.text.trim(),
       wifiProof: _wifiProofController.text.trim(),
+      beaconProof: _beaconProofController.text.trim(),
       rssi: rssi,
       observedAt: observedAt,
     );
@@ -930,6 +952,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
         acousticToken: _acousticTokenController.text.trim(),
         bleNonce: _bleNonceController.text.trim(),
         wifiProof: _wifiProofController.text.trim(),
+        beaconProof: _beaconProofController.text.trim(),
+        beaconRssi: _beaconProofController.text.trim().isEmpty ? null : rssi,
         rssi: rssi,
         observedAt: observedAt,
         signature: signature,
@@ -995,6 +1019,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
     required String acousticToken,
     required String bleNonce,
     required String wifiProof,
+    required String beaconProof,
     required int rssi,
     required DateTime observedAt,
   }) {
@@ -1005,6 +1030,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       acousticToken,
       bleNonce,
       wifiProof,
+      beaconProof,
       rssi,
       observedAt.toIso8601String(),
     ].join('|');
@@ -1016,9 +1042,16 @@ class _StudentScanPageState extends State<StudentScanPage> {
     required ScanResultModel ble,
     required bool acousticTrusted,
     required bool bleTrusted,
+    required bool beaconTrusted,
     required bool sessionConsistent,
     required bool freshnessPassed,
   }) {
+    if (beaconTrusted &&
+        (acousticTrusted || bleTrusted) &&
+        sessionConsistent &&
+        freshnessPassed) {
+      return 'Trusted multi-signal scan with room beacon';
+    }
     if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
       return 'Trusted dual-signal scan';
     }
@@ -1027,6 +1060,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
     }
     if (bleTrusted && sessionConsistent && freshnessPassed) {
       return 'Trusted BLE-only scan';
+    }
+    if (beaconTrusted && sessionConsistent && freshnessPassed) {
+      return 'Trusted BLE beacon room scan';
     }
     return 'Untrusted scan: no valid attendance path was confirmed';
   }
@@ -1050,6 +1086,46 @@ class _StudentScanPageState extends State<StudentScanPage> {
             scan.source == 'ble_scan_manufacturer_data' ||
             scan.source == 'ble_scan_service_data' ||
             scan.source == 'web_broadcast_cache');
+  }
+
+  bool _isTrustedBeaconSignal(ScanResultModel scan) {
+    return (scan.beaconProof?.trim().isNotEmpty ?? false) &&
+        (scan.source == 'ble_scan_beacon_eddystone_uid' ||
+            scan.source == 'ble_scan_beacon_ibeacon');
+  }
+
+  Future<SessionModel?> _latestActiveSessionForBeacon() async {
+    final sessions = await _api.listSessions();
+    final activeSessions =
+        sessions
+            .where(
+              (session) =>
+                  session.active &&
+                  session.attendanceOpen &&
+                  session.id != null,
+            )
+            .toList();
+    if (activeSessions.isEmpty) {
+      return null;
+    }
+    activeSessions.sort((a, b) => b.startsAt.compareTo(a.startsAt));
+    return activeSessions.first;
+  }
+
+  String _bleEvidenceLabel({
+    required bool lecturerBleTrusted,
+    required bool beaconTrusted,
+  }) {
+    if (lecturerBleTrusted && beaconTrusted) {
+      return 'Lecturer BLE + room beacon detected';
+    }
+    if (lecturerBleTrusted) {
+      return 'Lecturer BLE detected';
+    }
+    if (beaconTrusted) {
+      return 'BLE room beacon detected';
+    }
+    return '';
   }
 
   Future<bool> _ensureStudentScanPermissions() async {
@@ -1093,13 +1169,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
       final bleDecoded = SignalPayloadCodec.parseBleNonce(ble.bleNonce ?? '');
       final acousticTrusted = _isTrustedAcousticSignal(acoustic, acousticDecoded);
       final bleTrusted = _isTrustedBleSignal(ble, bleDecoded);
+      final beaconTrusted = _isTrustedBeaconSignal(ble);
       final passed = <String>[];
       final failed = <String>[];
 
       if (acousticTrusted) {
         passed.add('Acoustic payload parsed');
         passed.add('Acoustic evidence came from a trusted broadcast path');
-      } else if (!bleTrusted) {
+      } else if (!bleTrusted && !beaconTrusted) {
         failed.add(_friendlyAcousticResult(acoustic, false));
       } else {
         passed.add('Acoustic path was not used for this proof');
@@ -1108,10 +1185,17 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (bleTrusted) {
         passed.add('BLE payload parsed');
         passed.add('BLE evidence came from a trusted advertisement path');
-      } else if (!acousticTrusted) {
+      } else if (!acousticTrusted && !beaconTrusted) {
         failed.add(_friendlyBleResult(ble, false));
       } else {
-        passed.add('BLE path was not used for this proof');
+        passed.add('Lecturer BLE path was not used for this proof');
+      }
+
+      if (beaconTrusted) {
+        passed.add('Registered beacon proof captured');
+        passed.add('Room proximity evidence came from BLE beacon');
+      } else if (!acousticTrusted && !bleTrusted) {
+        failed.add(_friendlyBeaconResult(ble, false));
       }
 
       final sessionFromAc = acousticTrusted ? acousticDecoded?.sessionId : null;
@@ -1131,6 +1215,16 @@ class _StudentScanPageState extends State<StudentScanPage> {
         if (decodedSession != null) {
           sessionConsistent = true;
           passed.add('Session ID decoded from one signal');
+        } else if (beaconTrusted) {
+          final activeSession = await _latestActiveSessionForBeacon();
+          if (activeSession != null && activeSession.id != null) {
+            decodedSession = activeSession.id;
+            sessionConsistent = true;
+            passed.add('Session selected from active backend sessions');
+            passed.add('Backend will verify beacon-room match on submit');
+          } else {
+            failed.add('No active backend session was available for beacon proof.');
+          }
         } else {
           failed.add('No session was decoded from the scan.');
         }
@@ -1143,27 +1237,49 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (bleTrusted && bleDecoded != null) {
         ages.add(SignalPayloadCodec.signalAgeSeconds(bleDecoded.issuedAt));
       }
-      final maxAge = ages.isEmpty ? null : ages.reduce((a, b) => a > b ? a : b);
+      final beaconOnlyFreshness = ages.isEmpty && beaconTrusted;
+      final maxAge =
+          ages.isEmpty ? (beaconTrusted ? 0 : null) : ages.reduce((a, b) => a > b ? a : b);
       final freshnessPassed =
           maxAge != null &&
           maxAge >= 0 &&
           maxAge <= SignalPayloadCodec.expirySeconds;
       if (freshnessPassed) {
-        passed.add('Signal freshness within ${SignalPayloadCodec.expirySeconds}s');
+        passed.add(
+          beaconOnlyFreshness
+              ? 'Beacon was observed during this scan'
+              : 'Signal freshness within ${SignalPayloadCodec.expirySeconds}s',
+        );
       } else {
         failed.add('The captured signal is too old. Please scan again.');
       }
 
       String? proofMode;
-      if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
+      if (acousticTrusted &&
+          bleTrusted &&
+          beaconTrusted &&
+          sessionConsistent &&
+          freshnessPassed) {
+        proofMode = 'acoustic_ble_beacon';
+        passed.add('Proof path ready: acoustic_ble_beacon');
+      } else if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
         proofMode = 'dual_signal';
         passed.add('Proof path ready: dual_signal');
+      } else if (bleTrusted && beaconTrusted && sessionConsistent && freshnessPassed) {
+        proofMode = 'lecturer_ble_beacon';
+        passed.add('Proof path ready: lecturer_ble_beacon');
+      } else if (acousticTrusted && beaconTrusted && sessionConsistent && freshnessPassed) {
+        proofMode = 'acoustic_beacon';
+        passed.add('Proof path ready: acoustic_beacon');
       } else if (acousticTrusted && sessionConsistent && freshnessPassed) {
         proofMode = 'acoustic_only';
         passed.add('Proof path ready: acoustic_only');
       } else if (bleTrusted && sessionConsistent && freshnessPassed) {
         proofMode = 'ble_only';
         passed.add('Proof path ready: ble_only');
+      } else if (beaconTrusted && sessionConsistent && freshnessPassed) {
+        proofMode = 'ble_beacon';
+        passed.add('Proof path ready: ble_beacon');
       } else {
         failed.add('No valid attendance signal is ready for submission.');
       }
@@ -1181,6 +1297,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         ble: ble,
         acousticTrusted: acousticTrusted,
         bleTrusted: bleTrusted,
+        beaconTrusted: beaconTrusted,
         sessionConsistent: sessionConsistent,
         freshnessPassed: freshnessPassed,
       );
@@ -1202,7 +1319,12 @@ class _StudentScanPageState extends State<StudentScanPage> {
       setState(() {
         _acousticTokenController.text = acoustic.acousticToken;
         _bleNonceController.text = ble.bleNonce ?? '';
+        _bleEvidenceController.text = _bleEvidenceLabel(
+          lecturerBleTrusted: bleTrusted,
+          beaconTrusted: beaconTrusted,
+        );
         _wifiProofController.clear();
+        _beaconProofController.text = ble.beaconProof ?? '';
         _rssiController.text = '${ble.rssi ?? -60}';
         _decodedSessionId = decodedSession;
         _signalAgeSeconds = maxAge;
@@ -1214,7 +1336,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
           trustSummary,
           if (proofMode != null) 'Proof path: $proofMode',
           'Acoustic: ${_friendlyAcousticResult(acoustic, acousticTrusted)}',
-          'BLE: ${_friendlyBleResult(ble, bleTrusted)}',
+          'Lecturer BLE: ${_friendlyBleResult(ble, bleTrusted)}',
+          'Beacon: ${_friendlyBeaconResult(ble, beaconTrusted)}',
         ].join('\n');
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1262,9 +1385,16 @@ class _StudentScanPageState extends State<StudentScanPage> {
     try {
       final sessions = await _api.listSessions();
       final activeSessions =
-          sessions.where((session) => session.active && session.id != null).toList();
+          sessions
+              .where(
+                (session) =>
+                    session.active &&
+                    session.attendanceOpen &&
+                    session.id != null,
+              )
+              .toList();
       if (activeSessions.isEmpty) {
-        throw Exception('No active session is available for Wi-Fi/LAN verification.');
+        throw Exception('No open attendance session is available for Wi-Fi/LAN verification.');
       }
       activeSessions.sort((a, b) => b.startsAt.compareTo(a.startsAt));
       final session = activeSessions.first;
@@ -1300,7 +1430,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
       setState(() {
         _acousticTokenController.clear();
         _bleNonceController.clear();
+        _bleEvidenceController.clear();
         _wifiProofController.text = wifiProof;
+        _beaconProofController.clear();
         _rssiController.text = '0';
         _decodedSessionId = sessionId;
         _signalAgeSeconds = 0;
@@ -1392,8 +1524,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
               required: false,
             ),
             _buildRequiredField(
-              _bleNonceController,
-              'BLE Nonce',
+              _bleEvidenceController,
+              'BLE Evidence',
               readOnly: true,
               required: false,
             ),
@@ -1607,6 +1739,7 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
                                 acousticToken: proof.acousticToken,
                                 bleNonce: proof.bleNonce,
                                 wifiProof: proof.wifiProof,
+                                beaconProof: proof.beaconProof,
                               );
                               return Card(
                                 child: Padding(
@@ -1853,6 +1986,27 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     if (!permissionsReady) {
       return;
     }
+    try {
+      final opened = await _api.openAttendance(sessionId.toString());
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _lastSession = opened;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final message = friendlyErrorMessage(
+        error,
+        fallback: 'Attendance could not be opened. Please try again.',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return;
+    }
     _broadcast.start(
       sessionId: sessionId,
       tokenVersion: _tokenVersionController.text.trim(),
@@ -1871,12 +2025,35 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     });
   }
 
-  void _stopBroadcast() {
+  Future<void> _stopBroadcast() async {
+    final sessionId = _lastSession?.id;
     _broadcast.stop();
-    setState(() {});
+    if (sessionId != null) {
+      try {
+        final closed = await _api.closeAttendance(sessionId.toString());
+        if (mounted) {
+          setState(() {
+            _lastSession = closed;
+          });
+        }
+      } catch (_) {
+        // The local broadcast still stops even if the backend is temporarily unreachable.
+      }
+    }
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _stopSession() async {
+    final sessionId = _lastSession?.id;
+    if (sessionId != null) {
+      try {
+        await _api.closeAttendance(sessionId.toString());
+      } catch (_) {
+        // The local session view can still be cleared if the network drops.
+      }
+    }
     await SessionStore.setCurrentSessionId(null);
     setState(() {
       _lastSession = null;
@@ -1948,7 +2125,9 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
                         : Icons.wifi_tethering_outlined,
                   ),
                   label: Text(
-                    _broadcast.isRunning ? 'Stop Broadcast' : 'Start Broadcast',
+                    _broadcast.isRunning
+                        ? 'Close Attendance'
+                        : 'Open Attendance',
                   ),
                 ),
               ],
@@ -1960,6 +2139,10 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
                   _MetricItem(label: 'Session ID', value: '${_lastSession!.id}'),
                   _MetricItem(label: 'Course', value: _lastSession!.courseCode),
                   _MetricItem(label: 'Room', value: _lastSession!.room),
+                  _MetricItem(
+                    label: 'Attendance',
+                    value: _lastSession!.attendanceOpen ? 'Open' : 'Closed',
+                  ),
                 ],
               ),
             ],
@@ -2278,6 +2461,7 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
       acousticToken: proof.acousticToken,
       bleNonce: proof.bleNonce,
       wifiProof: proof.wifiProof,
+      beaconProof: proof.beaconProof,
     );
   }
 

@@ -26,6 +26,22 @@ class AttendanceApiService {
     return SessionModel.fromJson(json);
   }
 
+  Future<SessionModel> openAttendance(String sessionId) async {
+    final json = await _client.postJson(
+      '/api/sessions/$sessionId/open-attendance/',
+      const <String, dynamic>{},
+    );
+    return SessionModel.fromJson(json);
+  }
+
+  Future<SessionModel> closeAttendance(String sessionId) async {
+    final json = await _client.postJson(
+      '/api/sessions/$sessionId/close-attendance/',
+      const <String, dynamic>{},
+    );
+    return SessionModel.fromJson(json);
+  }
+
   Future<void> deleteSession(String sessionId) async {
     await _client.delete('/api/sessions/$sessionId/');
   }

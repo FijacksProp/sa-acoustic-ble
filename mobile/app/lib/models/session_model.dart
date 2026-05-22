@@ -8,6 +8,9 @@ class SessionModel {
     required this.startsAt,
     this.endsAt,
     this.active = true,
+    this.attendanceOpen = false,
+    this.attendanceOpenedAt,
+    this.attendanceClosesAt,
     this.tokenVersion = '',
   });
 
@@ -19,6 +22,9 @@ class SessionModel {
   final DateTime startsAt;
   final DateTime? endsAt;
   final bool active;
+  final bool attendanceOpen;
+  final DateTime? attendanceOpenedAt;
+  final DateTime? attendanceClosesAt;
   final String tokenVersion;
 
   Map<String, dynamic> toJson() {
@@ -46,6 +52,13 @@ class SessionModel {
           ? null
           : DateTime.parse(json['ends_at'] as String),
       active: json['active'] as bool? ?? true,
+      attendanceOpen: json['attendance_open'] as bool? ?? false,
+      attendanceOpenedAt: json['attendance_opened_at'] == null
+          ? null
+          : DateTime.parse(json['attendance_opened_at'] as String),
+      attendanceClosesAt: json['attendance_closes_at'] == null
+          ? null
+          : DateTime.parse(json['attendance_closes_at'] as String),
       tokenVersion: json['token_version'] as String? ?? '',
     );
   }

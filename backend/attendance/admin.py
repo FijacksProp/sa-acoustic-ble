@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import AttendanceProof, AttendanceReplayGuard, Session, UserProfile
+from .models import (
+    AttendanceProof,
+    AttendanceReplayGuard,
+    RegisteredBeacon,
+    Session,
+    UserProfile,
+)
 
 
 @admin.register(Session)
@@ -12,10 +18,11 @@ class SessionAdmin(admin.ModelAdmin):
         "lecturer_name",
         "room",
         "active",
+        "attendance_open",
         "starts_at",
         "created_by",
     )
-    list_filter = ("active", "course_code", "room", "starts_at")
+    list_filter = ("active", "attendance_open", "course_code", "room", "starts_at")
     search_fields = (
         "course_code",
         "course_title",
@@ -62,6 +69,8 @@ class AttendanceProofAdmin(admin.ModelAdmin):
         "ble_nonce",
         "wifi_proof",
         "wifi_client_ip",
+        "beacon_proof",
+        "registered_beacon",
         "device_trust_status",
         "device_trust_detail",
         "student_name",
@@ -102,6 +111,15 @@ class AttendanceProofAdmin(admin.ModelAdmin):
                     "ble_nonce",
                     "wifi_proof",
                     "wifi_client_ip",
+                    "beacon_proof",
+                    "beacon_type",
+                    "beacon_uuid",
+                    "beacon_major",
+                    "beacon_minor",
+                    "beacon_namespace_id",
+                    "beacon_instance_id",
+                    "beacon_rssi",
+                    "registered_beacon",
                     "rssi",
                     "signature",
                 )
@@ -138,6 +156,7 @@ class AttendanceProofAdmin(admin.ModelAdmin):
         has_acoustic = bool(obj.acoustic_token.strip())
         has_ble = bool(obj.ble_nonce.strip())
         has_wifi = bool(obj.wifi_proof.strip())
+        has_beacon = bool(obj.beacon_proof.strip())
         modes = []
         if has_acoustic:
             modes.append("Acoustic")
@@ -145,9 +164,40 @@ class AttendanceProofAdmin(admin.ModelAdmin):
             modes.append("BLE")
         if has_wifi:
             modes.append("Wi-Fi/LAN")
+        if has_beacon:
+            modes.append("BLE Beacon")
         if modes:
             return " + ".join(modes)
         return "Unknown"
+
+
+@admin.register(RegisteredBeacon)
+class RegisteredBeaconAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "room",
+        "beacon_type",
+        "identity",
+        "min_rssi",
+        "active",
+    )
+    list_filter = ("active", "beacon_type", "room")
+    search_fields = (
+        "name",
+        "room",
+        "uuid",
+        "namespace_id",
+        "instance_id",
+    )
+    readonly_fields = ("created_at",)
+    ordering = ("room", "name")
+
+    @admin.display(description="Identity")
+    def identity(self, obj):
+        if obj.beacon_type == RegisteredBeacon.BEACON_TYPE_IBEACON:
+            return f"{obj.uuid} / {obj.major}:{obj.minor}"
+        return f"{obj.namespace_id}:{obj.instance_id}"
 
 
 @admin.register(UserProfile)

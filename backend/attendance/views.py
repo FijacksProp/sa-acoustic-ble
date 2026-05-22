@@ -2,8 +2,10 @@ import re
 from datetime import datetime, timezone as dt_timezone
 
 from django.contrib.auth.models import User
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, generics, status
+from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
@@ -26,7 +28,11 @@ class SessionViewSet(viewsets.ModelViewSet):
         base = Session.objects.select_related("created_by", "created_by__user")
         if profile.role == UserProfile.ROLE_LECTURER:
             return base.filter(created_by=profile).order_by("-starts_at")
-        return base.filter(active=True).order_by("-starts_at")
+        return base.filter(
+            Q(attendance_closes_at__isnull=True) | Q(attendance_closes_at__gt=timezone.now()),
+            active=True,
+            attendance_open=True,
+        ).order_by("-starts_at")
 
     def perform_create(self, serializer):
         profile = self.request.user.profile
@@ -40,13 +46,48 @@ class SessionViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only the lecturer who created this session can delete it.")
         instance.delete()
 
+    @action(detail=True, methods=["post"], url_path="open-attendance")
+    def open_attendance(self, request, pk=None):
+        session = self.get_object()
+        profile = request.user.profile
+        if profile.role != UserProfile.ROLE_LECTURER or session.created_by_id != profile.id:
+            raise PermissionDenied("Only the lecturer who created this session can open attendance.")
+        now = timezone.now()
+        session.active = True
+        session.attendance_open = True
+        session.attendance_opened_at = now
+        session.attendance_closes_at = None
+        session.save(
+            update_fields=[
+                "active",
+                "attendance_open",
+                "attendance_opened_at",
+                "attendance_closes_at",
+            ]
+        )
+        return Response(self.get_serializer(session).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="close-attendance")
+    def close_attendance(self, request, pk=None):
+        session = self.get_object()
+        profile = request.user.profile
+        if profile.role != UserProfile.ROLE_LECTURER or session.created_by_id != profile.id:
+            raise PermissionDenied("Only the lecturer who created this session can close attendance.")
+        session.attendance_open = False
+        session.attendance_closes_at = timezone.now()
+        session.save(update_fields=["attendance_open", "attendance_closes_at"])
+        return Response(self.get_serializer(session).data, status=status.HTTP_200_OK)
+
 
 class AttendanceProofListCreateAPIView(generics.ListCreateAPIView):
     serializer_class = AttendanceProofSerializer
 
     def get_queryset(self):
         profile = self.request.user.profile
-        queryset = AttendanceProof.objects.select_related("session").order_by("-created_at")
+        queryset = AttendanceProof.objects.select_related(
+            "session",
+            "registered_beacon",
+        ).order_by("-created_at")
         if profile.role == UserProfile.ROLE_LECTURER:
             queryset = queryset.filter(session__created_by=profile)
         else:
@@ -196,6 +237,9 @@ class AttendanceValidationReportAPIView(APIView):
     WIFI_PATTERN = re.compile(
         r"^wifi\|(?P<session>\d+)\|(?P<issued>\d{10})$"
     )
+    BEACON_PATTERN = re.compile(
+        r"^beacon\|(?P<type>eddystone_uid|ibeacon)\|"
+    )
     EXPIRY_SECONDS = 60
 
     def get(self, request):
@@ -205,7 +249,7 @@ class AttendanceValidationReportAPIView(APIView):
 
         session_id = request.query_params.get("session")
         proofs = (
-            AttendanceProof.objects.select_related("session")
+            AttendanceProof.objects.select_related("session", "registered_beacon")
             .filter(session__created_by=profile)
             .order_by("-created_at")
         )
@@ -245,9 +289,11 @@ class AttendanceValidationReportAPIView(APIView):
         acoustic_token = proof.acoustic_token.strip()
         ble_nonce = proof.ble_nonce.strip()
         wifi_proof = proof.wifi_proof.strip()
+        beacon_proof = proof.beacon_proof.strip()
         am = self.ACOUSTIC_PATTERN.match(acoustic_token) if acoustic_token else None
         bm = self.BLE_PATTERN.match(ble_nonce) if ble_nonce else None
         wm = self.WIFI_PATTERN.match(wifi_proof) if wifi_proof else None
+        beacon_match = self.BEACON_PATTERN.match(beacon_proof) if beacon_proof else None
         if am:
             passed.append("Acoustic format")
         elif acoustic_token:
@@ -266,6 +312,12 @@ class AttendanceValidationReportAPIView(APIView):
             failed.append("Wi-Fi/LAN format")
         else:
             passed.append("Wi-Fi/LAN not supplied")
+        if beacon_match:
+            passed.append("BLE beacon format")
+        elif beacon_proof:
+            failed.append("BLE beacon format")
+        else:
+            passed.append("BLE beacon not supplied")
 
         ac_age = None
         ble_age = None
@@ -307,7 +359,17 @@ class AttendanceValidationReportAPIView(APIView):
             else:
                 failed.append("Wi-Fi/LAN freshness")
 
-        if am and bm and wm:
+        if am and bm and wm and beacon_match:
+            passed.append("Proof path: acoustic_ble_wifi_beacon")
+        elif am and bm and beacon_match:
+            passed.append("Proof path: acoustic_ble_beacon")
+        elif bm and beacon_match:
+            passed.append("Proof path: lecturer_ble_beacon")
+        elif am and beacon_match:
+            passed.append("Proof path: acoustic_beacon")
+        elif beacon_match:
+            passed.append("Proof path: ble_beacon")
+        elif am and bm and wm:
             passed.append("Proof path: acoustic_ble_wifi")
         elif am and bm:
             passed.append("Proof path: acoustic_ble")
@@ -338,6 +400,17 @@ class AttendanceValidationReportAPIView(APIView):
             "ble_age_seconds": ble_age,
             "wifi_age_seconds": wifi_age,
             "wifi_client_ip": proof.wifi_client_ip,
+            "beacon_proof": proof.beacon_proof,
+            "beacon_type": proof.beacon_type,
+            "beacon_namespace_id": proof.beacon_namespace_id,
+            "beacon_instance_id": proof.beacon_instance_id,
+            "beacon_uuid": proof.beacon_uuid,
+            "beacon_major": proof.beacon_major,
+            "beacon_minor": proof.beacon_minor,
+            "beacon_rssi": proof.beacon_rssi,
+            "registered_beacon_name": (
+                proof.registered_beacon.name if proof.registered_beacon else ""
+            ),
             "face_verification_status": proof.face_verification_status,
             "attendance_face_image_base64": proof.attendance_face_image_base64,
             "enrolled_face_image_base64": (
