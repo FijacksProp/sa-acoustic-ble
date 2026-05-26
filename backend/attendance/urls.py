@@ -3,6 +3,8 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     AttendanceProofListCreateAPIView,
+    BeaconRoomListAPIView,
+    ResolveBeaconSessionAPIView,
     SessionViewSet,
     RegisterAPIView,
     LoginAPIView,
@@ -17,8 +19,22 @@ router.register("sessions", SessionViewSet, basename="session")
 
 urlpatterns = [
     path("", include(router.urls)),
-    path("attendance/", AttendanceProofListCreateAPIView.as_view(), name="attendance-list-create"),
-    path("attendance/report/", AttendanceValidationReportAPIView.as_view(), name="attendance-validation-report"),
+    path(
+        "attendance/",
+        AttendanceProofListCreateAPIView.as_view(),
+        name="attendance-list-create",
+    ),
+    path(
+        "attendance/resolve-beacon-session/",
+        ResolveBeaconSessionAPIView.as_view(),
+        name="attendance-resolve-beacon-session",
+    ),
+    path(
+        "attendance/report/",
+        AttendanceValidationReportAPIView.as_view(),
+        name="attendance-validation-report",
+    ),
+    path("beacon-rooms/", BeaconRoomListAPIView.as_view(), name="beacon-room-list"),
     path("auth/register/", RegisterAPIView.as_view(), name="auth-register"),
     path("auth/login/", LoginAPIView.as_view(), name="auth-login"),
     path("auth/face-enrollment/", FaceEnrollmentAPIView.as_view(), name="auth-face-enrollment"),

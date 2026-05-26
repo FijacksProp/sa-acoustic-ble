@@ -26,6 +26,11 @@ class AttendanceApiService {
     return SessionModel.fromJson(json);
   }
 
+  Future<List<String>> listBeaconRooms() async {
+    final list = await _client.getList('/api/beacon-rooms/');
+    return list.map((room) => room.toString()).toList();
+  }
+
   Future<SessionModel> openAttendance(String sessionId) async {
     final json = await _client.postJson(
       '/api/sessions/$sessionId/open-attendance/',
@@ -49,6 +54,20 @@ class AttendanceApiService {
   Future<AttendanceProofModel> submitProof(AttendanceProofModel proof) async {
     final json = await _client.postJson('/api/attendance/', proof.toJson());
     return AttendanceProofModel.fromJson(json);
+  }
+
+  Future<SessionModel> resolveBeaconSession({
+    required String beaconProof,
+    int? beaconRssi,
+  }) async {
+    final json = await _client.postJson(
+      '/api/attendance/resolve-beacon-session/',
+      {
+        'beacon_proof': beaconProof,
+        if (beaconRssi != null) 'beacon_rssi': beaconRssi,
+      },
+    );
+    return SessionModel.fromJson(json['session'] as Map<String, dynamic>);
   }
 
   Future<List<AttendanceProofModel>> listProofs({

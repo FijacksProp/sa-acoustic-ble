@@ -353,7 +353,23 @@ class AttendanceProofSerializer(serializers.ModelSerializer):
 
         session_room = (session.room or "").strip().lower()
         beacon_room = (registered_beacon.room or "").strip().lower()
-        if beacon_room and session_room and beacon_room != session_room:
+        if not beacon_room:
+            raise serializers.ValidationError(
+                {
+                    "beacon_proof": (
+                        "Detected BLE beacon is registered but has not been assigned to a room."
+                    )
+                }
+            )
+        if not session_room:
+            raise serializers.ValidationError(
+                {
+                    "session": (
+                        "Session room is required before BLE beacon attendance can be accepted."
+                    )
+                }
+            )
+        if beacon_room != session_room:
             raise serializers.ValidationError(
                 {
                     "beacon_proof": (

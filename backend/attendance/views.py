@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.views import APIView
 
-from .models import AttendanceProof, Session, UserProfile
+from .models import AttendanceProof, RegisteredBeacon, Session, UserProfile
 from .serializers import (
     AttendanceProofSerializer,
     SessionSerializer,
@@ -154,6 +154,135 @@ class AttendanceProofListCreateAPIView(generics.ListCreateAPIView):
             device_trust_status=device_trust_status,
             device_trust_detail=device_trust_detail,
         )
+
+
+class ResolveBeaconSessionAPIView(APIView):
+    def post(self, request):
+        profile = request.user.profile
+        if profile.role != UserProfile.ROLE_STUDENT:
+            raise PermissionDenied("Only students can resolve beacon attendance sessions.")
+
+        beacon_proof = (request.data.get("beacon_proof") or "").strip()
+        if not beacon_proof:
+            return Response(
+                {"beacon_proof": "BLE beacon proof is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        beacon_match = AttendanceProofSerializer.BEACON_PATTERN.match(beacon_proof)
+        if not beacon_match:
+            return Response(
+                {"beacon_proof": "Invalid BLE beacon proof format."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        registered_beacon = self._find_registered_beacon(beacon_match)
+        if registered_beacon is None:
+            return Response(
+                {"beacon_proof": "This BLE beacon is not registered for attendance."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        beacon_room = (registered_beacon.room or "").strip()
+        if not beacon_room:
+            return Response(
+                {
+                    "beacon_proof": (
+                        "This BLE beacon is registered but has not been assigned to a room."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        beacon_rssi = self._parse_rssi(request.data.get("beacon_rssi"))
+        if beacon_rssi is not None and beacon_rssi < registered_beacon.min_rssi:
+            return Response(
+                {"beacon_rssi": "BLE beacon signal is too weak for attendance."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        sessions = (
+            Session.objects.select_related("created_by", "created_by__user")
+            .filter(
+                active=True,
+                attendance_open=True,
+                room__iexact=beacon_room,
+            )
+            .filter(
+                Q(attendance_closes_at__isnull=True)
+                | Q(attendance_closes_at__gt=now)
+            )
+            .order_by("-attendance_opened_at", "-starts_at", "-id")
+        )
+        session = sessions.first()
+        if session is None:
+            return Response(
+                {
+                    "session": (
+                        "No open attendance session is available for this beacon room."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "session": SessionSerializer(session).data,
+                "beacon": {
+                    "id": registered_beacon.id,
+                    "name": registered_beacon.name,
+                    "room": registered_beacon.room,
+                    "beacon_type": registered_beacon.beacon_type,
+                    "min_rssi": registered_beacon.min_rssi,
+                    "rssi": beacon_rssi,
+                    "multiple_open_sessions": sessions.count() > 1,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def _find_registered_beacon(self, beacon_match):
+        beacon_type = beacon_match.group("type").lower()
+        if beacon_type == RegisteredBeacon.BEACON_TYPE_EDDYSTONE_UID:
+            return RegisteredBeacon.objects.filter(
+                active=True,
+                beacon_type=RegisteredBeacon.BEACON_TYPE_EDDYSTONE_UID,
+                namespace_id__iexact=beacon_match.group("a").lower(),
+                instance_id__iexact=beacon_match.group("b").lower(),
+            ).first()
+
+        return RegisteredBeacon.objects.filter(
+            active=True,
+            beacon_type=RegisteredBeacon.BEACON_TYPE_IBEACON,
+            uuid__iexact=beacon_match.group("a").lower(),
+            major=int(beacon_match.group("b")),
+            minor=int(beacon_match.group("c") or 0),
+        ).first()
+
+    def _parse_rssi(self, raw_value):
+        if raw_value in (None, ""):
+            return None
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+
+
+class BeaconRoomListAPIView(APIView):
+    def get(self, request):
+        profile = request.user.profile
+        if profile.role != UserProfile.ROLE_LECTURER:
+            raise PermissionDenied("Only lecturers can view registered beacon rooms.")
+
+        rooms = [
+            room.strip()
+            for room in RegisteredBeacon.objects.filter(active=True)
+            .exclude(room="")
+            .values_list("room", flat=True)
+        ]
+        unique_rooms = sorted({room for room in rooms if room}, key=str.casefold)
+        return Response({"results": unique_rooms}, status=status.HTTP_200_OK)
 
 
 class RegisterAPIView(generics.GenericAPIView):

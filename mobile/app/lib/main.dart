@@ -812,6 +812,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
   String? _statusMessage;
   int? _decodedSessionId;
   int? _signalAgeSeconds;
+  SessionModel? _scannedSession;
+  AttendanceProofModel? _lastSubmittedProof;
   final Set<int> _submittedSessionIds = <int>{};
   List<String> _passedChecks = [];
   List<String> _failedChecks = [];
@@ -971,6 +973,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         ].join('\n');
         _submittedSessionIds.add(sessionId);
         _scanEligibleForSubmit = false;
+        _lastSubmittedProof = created;
       });
       if (created.deviceTrustStatus == 'bound_on_submit') {
         await SessionStore.setRegisteredDeviceId(deviceId);
@@ -1096,22 +1099,15 @@ class _StudentScanPageState extends State<StudentScanPage> {
             scan.source == 'ble_scan_lecturer_and_beacon');
   }
 
-  Future<SessionModel?> _latestActiveSessionForBeacon() async {
-    final sessions = await _api.listSessions();
-    final activeSessions =
-        sessions
-            .where(
-              (session) =>
-                  session.active &&
-                  session.attendanceOpen &&
-                  session.id != null,
-            )
-            .toList();
-    if (activeSessions.isEmpty) {
+  Future<SessionModel?> _resolveSessionForBeacon(ScanResultModel scan) async {
+    final beaconProof = scan.beaconProof?.trim() ?? '';
+    if (beaconProof.isEmpty) {
       return null;
     }
-    activeSessions.sort((a, b) => b.startsAt.compareTo(a.startsAt));
-    return activeSessions.first;
+    return _api.resolveBeaconSession(
+      beaconProof: beaconProof,
+      beaconRssi: scan.rssi,
+    );
   }
 
   String _bleEvidenceLabel({
@@ -1161,6 +1157,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
     setState(() {
       _scanning = true;
       _statusMessage = null;
+      _lastSubmittedProof = null;
     });
     try {
       final acoustic = await _acoustic.startAcousticScan();
@@ -1172,6 +1169,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
       final acousticTrusted = _isTrustedAcousticSignal(acoustic, acousticDecoded);
       final bleTrusted = _isTrustedBleSignal(ble, bleDecoded);
       final beaconTrusted = _isTrustedBeaconSignal(ble);
+      var beaconAccepted = beaconTrusted;
+      var beaconSessionConflict = false;
       final passed = <String>[];
       final failed = <String>[];
 
@@ -1195,13 +1194,36 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
       if (beaconTrusted) {
         passed.add('Registered beacon proof captured');
-        passed.add('Room proximity evidence came from BLE beacon');
       } else if (!acousticTrusted && !bleTrusted) {
         failed.add(_friendlyBeaconResult(ble, false));
       }
 
       final sessionFromAc = acousticTrusted ? acousticDecoded?.sessionId : null;
       final sessionFromBle = bleTrusted ? bleDecoded?.sessionId : null;
+      int? sessionFromBeacon;
+      SessionModel? beaconSessionModel;
+      if (beaconTrusted) {
+        try {
+          final beaconSession = await _resolveSessionForBeacon(ble);
+          beaconSessionModel = beaconSession;
+          sessionFromBeacon = beaconSession?.id;
+          if (sessionFromBeacon != null) {
+            passed.add('Beacon room resolved to an open attendance session');
+            passed.add('Room proximity evidence accepted from BLE beacon');
+          } else {
+            beaconAccepted = false;
+            failed.add('No open session could be resolved from the room beacon.');
+          }
+        } catch (error) {
+          beaconAccepted = false;
+          failed.add(
+            friendlyErrorMessage(
+              error,
+              fallback: 'Could not match this beacon to an open room session.',
+            ),
+          );
+        }
+      }
       int? decodedSession;
       var sessionConsistent = false;
       if (sessionFromAc != null && sessionFromBle != null) {
@@ -1213,23 +1235,28 @@ class _StudentScanPageState extends State<StudentScanPage> {
           failed.add('Session mismatch between acoustic and BLE');
         }
       } else {
-        decodedSession = sessionFromAc ?? sessionFromBle;
+        decodedSession = sessionFromAc ?? sessionFromBle ?? sessionFromBeacon;
         if (decodedSession != null) {
           sessionConsistent = true;
-          passed.add('Session ID decoded from one signal');
-        } else if (beaconTrusted) {
-          final activeSession = await _latestActiveSessionForBeacon();
-          if (activeSession != null && activeSession.id != null) {
-            decodedSession = activeSession.id;
-            sessionConsistent = true;
-            passed.add('Session selected from active backend sessions');
-            passed.add('Backend will verify beacon-room match on submit');
+          if (decodedSession == sessionFromBeacon &&
+              sessionFromAc == null &&
+              sessionFromBle == null) {
+            passed.add('Session resolved from the detected room beacon');
           } else {
-            failed.add('No active backend session was available for beacon proof.');
+            passed.add('Session ID decoded from one signal');
           }
         } else {
           failed.add('No session was decoded from the scan.');
         }
+      }
+      if (beaconAccepted &&
+          sessionFromBeacon != null &&
+          decodedSession != null &&
+          sessionFromBeacon != decodedSession) {
+        beaconAccepted = false;
+        beaconSessionConflict = true;
+        sessionConsistent = false;
+        failed.add('Detected beacon belongs to a different open room session.');
       }
 
       final ages = <int>[];
@@ -1239,9 +1266,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
       if (bleTrusted && bleDecoded != null) {
         ages.add(SignalPayloadCodec.signalAgeSeconds(bleDecoded.issuedAt));
       }
-      final beaconOnlyFreshness = ages.isEmpty && beaconTrusted;
+      final beaconOnlyFreshness = ages.isEmpty && beaconAccepted;
       final maxAge =
-          ages.isEmpty ? (beaconTrusted ? 0 : null) : ages.reduce((a, b) => a > b ? a : b);
+          ages.isEmpty ? (beaconAccepted ? 0 : null) : ages.reduce((a, b) => a > b ? a : b);
       final freshnessPassed =
           maxAge != null &&
           maxAge >= 0 &&
@@ -1259,7 +1286,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       String? proofMode;
       if (acousticTrusted &&
           bleTrusted &&
-          beaconTrusted &&
+          beaconAccepted &&
           sessionConsistent &&
           freshnessPassed) {
         proofMode = 'acoustic_ble_beacon';
@@ -1267,10 +1294,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
       } else if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
         proofMode = 'dual_signal';
         passed.add('Proof path ready: dual_signal');
-      } else if (bleTrusted && beaconTrusted && sessionConsistent && freshnessPassed) {
+      } else if (bleTrusted && beaconAccepted && sessionConsistent && freshnessPassed) {
         proofMode = 'lecturer_ble_beacon';
         passed.add('Proof path ready: lecturer_ble_beacon');
-      } else if (acousticTrusted && beaconTrusted && sessionConsistent && freshnessPassed) {
+      } else if (acousticTrusted && beaconAccepted && sessionConsistent && freshnessPassed) {
         proofMode = 'acoustic_beacon';
         passed.add('Proof path ready: acoustic_beacon');
       } else if (acousticTrusted && sessionConsistent && freshnessPassed) {
@@ -1279,16 +1306,28 @@ class _StudentScanPageState extends State<StudentScanPage> {
       } else if (bleTrusted && sessionConsistent && freshnessPassed) {
         proofMode = 'ble_only';
         passed.add('Proof path ready: ble_only');
-      } else if (beaconTrusted && sessionConsistent && freshnessPassed) {
+      } else if (beaconAccepted && sessionConsistent && freshnessPassed) {
         proofMode = 'ble_beacon';
         passed.add('Proof path ready: ble_beacon');
       } else {
         failed.add('No valid attendance signal is ready for submission.');
       }
+      if (beaconSessionConflict) {
+        proofMode = null;
+      }
 
       if (decodedSession != null && _submittedSessionIds.contains(decodedSession)) {
         proofMode = null;
         failed.add('Attendance has already been submitted for this session');
+      }
+
+      SessionModel? scanSession = beaconSessionModel;
+      if (decodedSession != null && scanSession?.id != decodedSession) {
+        try {
+          scanSession = await _api.getSession(decodedSession.toString());
+        } catch (_) {
+          scanSession = null;
+        }
       }
 
       if (!mounted) {
@@ -1299,7 +1338,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         ble: ble,
         acousticTrusted: acousticTrusted,
         bleTrusted: bleTrusted,
-        beaconTrusted: beaconTrusted,
+        beaconTrusted: beaconAccepted,
         sessionConsistent: sessionConsistent,
         freshnessPassed: freshnessPassed,
       );
@@ -1323,12 +1362,13 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _bleNonceController.text = ble.bleNonce ?? '';
         _bleEvidenceController.text = _bleEvidenceLabel(
           lecturerBleTrusted: bleTrusted,
-          beaconTrusted: beaconTrusted,
+          beaconTrusted: beaconAccepted,
         );
         _wifiProofController.clear();
-        _beaconProofController.text = ble.beaconProof ?? '';
+        _beaconProofController.text = beaconAccepted ? (ble.beaconProof ?? '') : '';
         _rssiController.text = '${ble.rssi ?? -60}';
         _decodedSessionId = decodedSession;
+        _scannedSession = scanSession;
         _signalAgeSeconds = maxAge;
         _passedChecks = passed;
         _failedChecks = failed;
@@ -1339,7 +1379,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
           if (proofMode != null) 'Proof path: $proofMode',
           'Acoustic: ${_friendlyAcousticResult(acoustic, acousticTrusted)}',
           'Lecturer BLE: ${_friendlyBleResult(ble, bleTrusted)}',
-          'Beacon: ${_friendlyBeaconResult(ble, beaconTrusted)}',
+          'Beacon: ${_friendlyBeaconResult(ble, beaconAccepted)}',
         ].join('\n');
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1366,6 +1406,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _failedChecks = [message];
         _passedChecks = [];
         _decodedSessionId = null;
+        _scannedSession = null;
         _signalAgeSeconds = null;
         _scanEligibleForSubmit = false;
         _statusMessage = message;
@@ -1383,6 +1424,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
     setState(() {
       _scanning = true;
       _statusMessage = null;
+      _lastSubmittedProof = null;
     });
     try {
       final sessions = await _api.listSessions();
@@ -1437,6 +1479,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _beaconProofController.clear();
         _rssiController.text = '0';
         _decodedSessionId = sessionId;
+        _scannedSession = session;
         _signalAgeSeconds = 0;
         _passedChecks = const [
           'Wi-Fi/LAN proof generated',
@@ -1466,6 +1509,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _failedChecks = [message];
         _passedChecks = [];
         _decodedSessionId = null;
+        _scannedSession = null;
         _signalAgeSeconds = null;
         _scanEligibleForSubmit = false;
         _statusMessage = message;
@@ -1480,100 +1524,128 @@ class _StudentScanPageState extends State<StudentScanPage> {
     }
   }
 
+  bool get _hasSubmittedCurrentSession =>
+      _decodedSessionId != null && _submittedSessionIds.contains(_decodedSessionId);
+
+  String get _currentSignalMode => _proofScanModeLabel(
+        acousticToken: _acousticTokenController.text,
+        bleNonce: _bleNonceController.text,
+        wifiProof: _wifiProofController.text,
+        beaconProof: _beaconProofController.text,
+      );
+
+  _ChipTone get _attendanceTone {
+    if (_lastSubmittedProof != null || _hasSubmittedCurrentSession) {
+      return _ChipTone.success;
+    }
+    if (_scanEligibleForSubmit) {
+      return _ChipTone.success;
+    }
+    if (_failedChecks.isNotEmpty) {
+      return _ChipTone.danger;
+    }
+    return _ChipTone.neutral;
+  }
+
+  IconData get _attendanceIcon {
+    if (_lastSubmittedProof != null || _hasSubmittedCurrentSession) {
+      return Icons.verified_outlined;
+    }
+    if (_scanning) {
+      return Icons.radar_outlined;
+    }
+    if (_failedChecks.isNotEmpty) {
+      return Icons.troubleshoot_outlined;
+    }
+    if (_scanEligibleForSubmit) {
+      return Icons.task_alt_outlined;
+    }
+    return Icons.sensors_outlined;
+  }
+
+  String get _attendanceTitle {
+    if (_lastSubmittedProof != null || _hasSubmittedCurrentSession) {
+      return 'Attendance submitted';
+    }
+    if (_scanning) {
+      return 'Scanning the room';
+    }
+    if (_scanEligibleForSubmit) {
+      return 'Signal verified';
+    }
+    if (_failedChecks.isNotEmpty) {
+      return 'Scan needs attention';
+    }
+    return 'Ready to capture attendance';
+  }
+
+  String get _attendanceSubtitle {
+    if (_lastSubmittedProof != null || _hasSubmittedCurrentSession) {
+      return 'Your proof has been received for this session. No second submission is needed.';
+    }
+    if (_scanning) {
+      return 'Keep your phone steady while the app checks acoustic, BLE, and room beacon signals.';
+    }
+    if (_scanEligibleForSubmit) {
+      return 'The room signal is valid. Submit now to record your attendance.';
+    }
+    if (_failedChecks.isNotEmpty) {
+      return 'Follow the guidance below, then scan again from inside the classroom.';
+    }
+    return 'Stand inside the classroom, keep Bluetooth and location on, then run one guided scan.';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final submitted = _lastSubmittedProof != null || _hasSubmittedCurrentSession;
+    final canScan = !_scanning && !_submitting && !submitted;
+    final canSubmit = _scanEligibleForSubmit && !_submitting && !submitted;
+    final hasScanDetails = _passedChecks.isNotEmpty || _failedChecks.isNotEmpty;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ScreenHeroCard(
-              title: 'Signal Scan Submit',
-              subtitle:
-                  'Use one guided scan to capture the best available attendance signal, review the result, and submit confidently.',
-              icon: Icons.radar_outlined,
-            ),
-            const SizedBox(height: 12),
-            _MetricsStrip(
-              items: [
-                _MetricItem(
-                  label: 'Session',
-                  value: _decodedSessionId?.toString() ?? '--',
-                ),
-                _MetricItem(
-                  label: 'Signal Age',
-                  value: _signalAgeSeconds == null ? '--' : '${_signalAgeSeconds}s',
-                ),
-                _MetricItem(
-                  label: 'Student',
-                  value: SessionStore.currentIdentity().isEmpty
-                      ? '--'
-                      : SessionStore.currentIdentity(),
-                ),
-                _MetricItem(
-                  label: 'Device',
-                  value: SessionStore.displayDeviceId(_deviceId),
-                ),
-              ],
+            _StudentAttendanceHero(
+              title: _attendanceTitle,
+              subtitle: _attendanceSubtitle,
+              icon: _attendanceIcon,
+              tone: _attendanceTone,
+              identity: SessionStore.currentIdentity().isEmpty
+                  ? 'Student'
+                  : SessionStore.currentIdentity(),
+              device: SessionStore.displayDeviceId(_deviceId),
             ),
             const SizedBox(height: 14),
-            _buildRequiredField(
-              _acousticTokenController,
-              'Acoustic Token',
-              readOnly: true,
-              required: false,
-            ),
-            _buildRequiredField(
-              _bleEvidenceController,
-              'BLE Evidence',
-              readOnly: true,
-              required: false,
-            ),
-            _buildRequiredField(
-              _wifiProofController,
-              'Wi-Fi/LAN Proof',
-              readOnly: true,
-              required: false,
-            ),
-            _buildRequiredField(
-              _rssiController,
-              'RSSI',
-              numeric: true,
-              readOnly: true,
+            _StudentScanActionCard(
+              scanning: _scanning,
+              submitting: _submitting,
+              submitted: submitted,
+              readyToSubmit: _scanEligibleForSubmit,
+              onScan: canScan ? _runSignalScan : null,
+              onWifi: (!_scanning && !_submitting && !submitted)
+                  ? _runWifiVerification
+                  : null,
+              onSubmit: canSubmit ? _submitProof : null,
             ),
             const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: (_scanning ||
-                          (_decodedSessionId != null &&
-                              _submittedSessionIds.contains(_decodedSessionId)))
-                      ? null
-                      : _runSignalScan,
-                  icon: const Icon(Icons.radar_outlined),
-                  label: Text(_scanning ? 'Scanning...' : 'Scan Acoustic/BLE'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: (_scanning || _submitting) ? null : _runWifiVerification,
-                  icon: const Icon(Icons.wifi_outlined),
-                  label: const Text('Verify Wi-Fi/LAN'),
-                ),
-                FilledButton.icon(
-                  onPressed: _submitting ? null : _submitProof,
-                  icon: const Icon(Icons.verified_outlined),
-                  label: Text(_submitting ? 'Submitting...' : 'Submit Proof'),
-                ),
-              ],
+            _StudentSessionReceiptCard(
+              session: _scannedSession,
+              sessionId: _decodedSessionId,
+              signalAgeSeconds: _signalAgeSeconds,
+              signalMode: _currentSignalMode,
+              submitted: submitted,
+              readyToSubmit: _scanEligibleForSubmit,
+              rssi: int.tryParse(_rssiController.text.trim()),
             ),
-            if (_passedChecks.isNotEmpty || _failedChecks.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _ScanResultCard(
-                decodedSessionId: _decodedSessionId,
-                signalAgeSeconds: _signalAgeSeconds,
+            if (hasScanDetails) ...[
+              const SizedBox(height: 14),
+              _StudentScanSummaryCard(
+                tone: _attendanceTone,
+                title: _attendanceTitle,
                 passedChecks: _passedChecks,
                 failedChecks: _failedChecks,
               ),
@@ -1596,33 +1668,576 @@ class _StudentScanPageState extends State<StudentScanPage> {
               ),
             ],
             const SizedBox(height: 12),
-            _SectionTitleBar(
-              title: 'Recent Field-Test Logs',
-              action: TextButton(
-                onPressed: (_clearingLogs || _scanLogs.isEmpty)
-                    ? null
-                    : _clearScanLogs,
-                child: Text(_clearingLogs ? 'Clearing...' : 'Clear Logs'),
-              ),
+            _StudentTechnicalDetails(
+              acousticTokenController: _acousticTokenController,
+              bleEvidenceController: _bleEvidenceController,
+              wifiProofController: _wifiProofController,
+              beaconProofController: _beaconProofController,
+              rssiController: _rssiController,
             ),
-            if (_scanLogs.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    'No scan logs yet. Run phone tests to build a local history of outcomes.',
-                  ),
-                ),
-              )
-            else
-              ..._scanLogs.map(
-                (log) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _ScanTestLogCard(log: log),
-                ),
-              ),
+            const SizedBox(height: 12),
+            _StudentLogsPanel(
+              logs: _scanLogs,
+              clearing: _clearingLogs,
+              onClear: (_clearingLogs || _scanLogs.isEmpty)
+                  ? null
+                  : _clearScanLogs,
+            ),
+            const SizedBox(height: 10),
+            _GuidanceCard(
+              icon: Icons.lightbulb_outline,
+              title: 'Best scan position',
+              message:
+                  'Stay inside the class, keep Bluetooth and Location enabled, and place the phone where it can receive the room beacon or lecturer broadcast clearly.',
+              tone: _ChipTone.neutral,
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StudentAttendanceHero extends StatelessWidget {
+  const _StudentAttendanceHero({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.tone,
+    required this.identity,
+    required this.device,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final _ChipTone tone;
+  final String identity;
+  final String device;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final accent = switch (tone) {
+      _ChipTone.success => Colors.green.shade500,
+      _ChipTone.danger => Colors.orange.shade600,
+      _ChipTone.neutral => colors.primary,
+    };
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF0B1B3A),
+            Color.lerp(const Color(0xFF0B1B3A), accent, 0.32)!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0B1B3A).withOpacity(0.2),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                ),
+                child: Icon(icon, color: Colors.white, size: 30),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withOpacity(0.84),
+                            height: 1.45,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _GlassPill(icon: Icons.badge_outlined, label: identity),
+              _GlassPill(icon: Icons.phone_android_outlined, label: device),
+              const _GlassPill(icon: Icons.verified_user_outlined, label: 'One submission only'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlassPill extends StatelessWidget {
+  const _GlassPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StudentScanActionCard extends StatelessWidget {
+  const _StudentScanActionCard({
+    required this.scanning,
+    required this.submitting,
+    required this.submitted,
+    required this.readyToSubmit,
+    required this.onScan,
+    required this.onWifi,
+    required this.onSubmit,
+  });
+
+  final bool scanning;
+  final bool submitting;
+  final bool submitted;
+  final bool readyToSubmit;
+  final VoidCallback? onScan;
+  final VoidCallback? onWifi;
+  final VoidCallback? onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: colors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(Icons.radar_outlined, color: colors.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Capture classroom signal',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
+                _StatusChip(
+                  label: submitted
+                      ? 'Submitted'
+                      : readyToSubmit
+                          ? 'Verified'
+                          : 'Awaiting scan',
+                  tone: submitted || readyToSubmit
+                      ? _ChipTone.success
+                      : _ChipTone.neutral,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 54,
+              child: FilledButton.icon(
+                onPressed: onScan,
+                icon: scanning
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.sensors_outlined),
+                label: Text(scanning ? 'Scanning room...' : 'Scan room signal'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onWifi,
+                    icon: const Icon(Icons.wifi_outlined),
+                    label: const Text('Wi-Fi fallback'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: onSubmit,
+                    icon: const Icon(Icons.done_all_outlined),
+                    label: Text(submitting ? 'Submitting...' : 'Submit'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StudentSessionReceiptCard extends StatelessWidget {
+  const _StudentSessionReceiptCard({
+    required this.session,
+    required this.sessionId,
+    required this.signalAgeSeconds,
+    required this.signalMode,
+    required this.submitted,
+    required this.readyToSubmit,
+    required this.rssi,
+  });
+
+  final SessionModel? session;
+  final int? sessionId;
+  final int? signalAgeSeconds;
+  final String signalMode;
+  final bool submitted;
+  final bool readyToSubmit;
+  final int? rssi;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final tone = submitted || readyToSubmit ? _ChipTone.success : _ChipTone.neutral;
+    final title = session == null
+        ? 'No session captured yet'
+        : session!.courseTitle.trim().isEmpty
+            ? session!.courseCode
+            : '${session!.courseCode} - ${session!.courseTitle}';
+    final signalAgeLabel =
+        signalAgeSeconds == null ? '-' : '${signalAgeSeconds}s';
+    final rssiLabel = rssi == null ? '-' : '$rssi';
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: (submitted || readyToSubmit
+                            ? Colors.green
+                            : colors.primary)
+                        .withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(
+                    submitted || readyToSubmit
+                        ? Icons.fact_check_outlined
+                        : Icons.assignment_outlined,
+                    color: submitted || readyToSubmit
+                        ? Colors.green.shade700
+                        : colors.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title.isEmpty ? 'Session captured' : title,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        submitted
+                            ? 'Submission receipt is locked for this session.'
+                            : readyToSubmit
+                                ? 'Ready to submit your attendance proof.'
+                                : 'Scan first to fill this attendance receipt.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: colors.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                _StatusChip(
+                  label: submitted
+                      ? 'Submitted'
+                      : readyToSubmit
+                          ? 'Ready'
+                          : 'Waiting',
+                  tone: tone,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _InlineInfoRows(
+              items: [
+                _ProfileDetailItem(
+                  label: 'Session',
+                  value: sessionId?.toString() ?? '-',
+                ),
+                _ProfileDetailItem(
+                  label: 'Room',
+                  value: session?.room.isNotEmpty == true ? session!.room : '-',
+                ),
+                _ProfileDetailItem(
+                  label: 'Signal mode',
+                  value: signalMode,
+                ),
+                _ProfileDetailItem(
+                  label: 'Signal age / RSSI',
+                  value: '$signalAgeLabel / $rssiLabel',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StudentScanSummaryCard extends StatelessWidget {
+  const _StudentScanSummaryCard({
+    required this.tone,
+    required this.title,
+    required this.passedChecks,
+    required this.failedChecks,
+  });
+
+  final _ChipTone tone;
+  final String title;
+  final List<String> passedChecks;
+  final List<String> failedChecks;
+
+  @override
+  Widget build(BuildContext context) {
+    final isGood = tone == _ChipTone.success && failedChecks.isEmpty;
+    final visibleChecks = failedChecks.isNotEmpty
+        ? failedChecks.take(4).toList()
+        : passedChecks.take(4).toList();
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  isGood ? Icons.check_circle_outline : Icons.info_outline,
+                  color: isGood ? Colors.green.shade700 : Colors.orange.shade700,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final item in visibleChecks)
+                  _StatusChip(
+                    label: item,
+                    tone: failedChecks.isEmpty
+                        ? _ChipTone.success
+                        : _ChipTone.danger,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StudentTechnicalDetails extends StatelessWidget {
+  const _StudentTechnicalDetails({
+    required this.acousticTokenController,
+    required this.bleEvidenceController,
+    required this.wifiProofController,
+    required this.beaconProofController,
+    required this.rssiController,
+  });
+
+  final TextEditingController acousticTokenController;
+  final TextEditingController bleEvidenceController;
+  final TextEditingController wifiProofController;
+  final TextEditingController beaconProofController;
+  final TextEditingController rssiController;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        leading: const Icon(Icons.tune_outlined),
+        title: const Text('Technical proof details'),
+        subtitle: const Text('Hidden by default for classroom use'),
+        children: [
+          _buildRequiredField(
+            acousticTokenController,
+            'Acoustic Token',
+            readOnly: true,
+            required: false,
+          ),
+          _buildRequiredField(
+            bleEvidenceController,
+            'BLE Evidence',
+            readOnly: true,
+            required: false,
+          ),
+          _buildRequiredField(
+            wifiProofController,
+            'Wi-Fi/LAN Proof',
+            readOnly: true,
+            required: false,
+          ),
+          _buildRequiredField(
+            beaconProofController,
+            'Beacon Proof',
+            readOnly: true,
+            required: false,
+          ),
+          _buildRequiredField(
+            rssiController,
+            'RSSI',
+            numeric: true,
+            readOnly: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StudentLogsPanel extends StatelessWidget {
+  const _StudentLogsPanel({
+    required this.logs,
+    required this.clearing,
+    required this.onClear,
+  });
+
+  final List<ScanTestLogModel> logs;
+  final bool clearing;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        leading: const Icon(Icons.history_outlined),
+        title: const Text('Recent scan history'),
+        subtitle: Text(
+          logs.isEmpty
+              ? 'No local scan records yet'
+              : '${logs.length} local scan record${logs.length == 1 ? '' : 's'}',
+        ),
+        trailing: TextButton(
+          onPressed: onClear,
+          child: Text(clearing ? 'Clearing...' : 'Clear'),
+        ),
+        children: [
+          if (logs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: Text(
+                'Run a scan to create a private local record for field testing.',
+              ),
+            )
+          else
+            for (final log in logs)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ScanTestLogCard(log: log),
+              ),
+        ],
       ),
     );
   }
@@ -1874,6 +2489,8 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   final _tokenVersionController = TextEditingController(text: 'v1');
 
   bool _submitting = false;
+  bool _loadingRooms = false;
+  List<String> _availableRooms = [];
   SessionModel? _lastSession;
   BroadcastSnapshot? _broadcastSnapshot;
   StreamSubscription<BroadcastSnapshot>? _broadcastSub;
@@ -1881,7 +2498,39 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   @override
   void initState() {
     super.initState();
+    _loadBeaconRooms();
     _loadCurrentSession();
+  }
+
+  Future<void> _loadBeaconRooms() async {
+    setState(() {
+      _loadingRooms = true;
+    });
+    try {
+      final rooms = await _api.listBeaconRooms();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _availableRooms = rooms;
+        if (_roomController.text.trim().isEmpty && rooms.length == 1) {
+          _roomController.text = rooms.first;
+        }
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _availableRooms = [];
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingRooms = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadCurrentSession() async {
@@ -1896,13 +2545,12 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
       }
       setState(() {
         _lastSession = session;
+        _courseCodeController.text = session.courseCode;
+        _courseTitleController.text = session.courseTitle;
+        _lecturerNameController.text = session.lecturerName;
+        _roomController.text = session.room;
+        _tokenVersionController.text = session.tokenVersion;
       });
-      // Populate form fields
-      _courseCodeController.text = session.courseCode;
-      _courseTitleController.text = session.courseTitle;
-      _lecturerNameController.text = session.lecturerName;
-      _roomController.text = session.room;
-      _tokenVersionController.text = session.tokenVersion;
     } catch (error) {
       // Ignore errors, session might be deleted
     }
@@ -1955,6 +2603,89 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
         });
       }
     }
+  }
+
+  Widget _buildRoomSelector() {
+    if (_availableRooms.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildRequiredField(_roomController, 'Room'),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _loadingRooms
+                        ? 'Loading registered beacon rooms...'
+                        : 'No registered beacon rooms found yet. Type the room manually or add beacon rooms in Django admin.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _loadingRooms ? null : _loadBeaconRooms,
+                  child: const Text('Refresh'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    final currentRoom = _roomController.text.trim();
+    final selectedRoom =
+        _availableRooms.contains(currentRoom) ? currentRoom : null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('${_availableRooms.join('|')}|$selectedRoom'),
+        initialValue: selectedRoom,
+        decoration: InputDecoration(
+          labelText: 'Room',
+          helperText: 'Rooms are loaded from active registered beacons.',
+          border: const OutlineInputBorder(),
+          suffixIcon: _loadingRooms
+              ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : IconButton(
+                  tooltip: 'Refresh rooms',
+                  onPressed: _loadBeaconRooms,
+                  icon: const Icon(Icons.refresh),
+                ),
+        ),
+        hint: const Text('Select registered room'),
+        items: _availableRooms
+            .map(
+              (room) => DropdownMenuItem<String>(
+                value: room,
+                child: Text(room),
+              ),
+            )
+            .toList(),
+        onChanged: (value) {
+          if (value == null) {
+            return;
+          }
+          setState(() {
+            _roomController.text = value;
+          });
+        },
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return 'Room is required';
+          }
+          return null;
+        },
+      ),
+    );
   }
 
   Future<bool> _ensureLecturerBroadcastPermissions() async {
@@ -2060,14 +2791,13 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     setState(() {
       _lastSession = null;
       _broadcastSnapshot = null;
+      _courseCodeController.clear();
+      _courseTitleController.clear();
+      _lecturerNameController.clear();
+      _roomController.clear();
+      _tokenVersionController.text = 'v1';
     });
     _broadcast.stop();
-    // Clear form
-    _courseCodeController.clear();
-    _courseTitleController.clear();
-    _lecturerNameController.clear();
-    _roomController.clear();
-    _tokenVersionController.text = 'v1';
   }
 
   @override
@@ -2084,76 +2814,378 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
 
   @override
   Widget build(BuildContext context) {
+    final activeSession = _lastSession;
+    final hasSession = activeSession != null;
+    final attendanceOpen = activeSession?.attendanceOpen == true;
+    final title = attendanceOpen
+        ? 'Attendance is live'
+        : hasSession
+            ? 'Session ready'
+            : 'Prepare class session';
+    final subtitle = attendanceOpen
+        ? 'Students can now scan acoustic, BLE, or room beacon proof for this class.'
+        : hasSession
+            ? 'Review the class details, then open attendance when the room is ready.'
+            : 'Create a session, select the registered room, and control attendance from one place.';
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ScreenHeroCard(
-              title: 'Start Session',
-              subtitle:
-                  'Create a session, confirm the class details, and begin broadcasting attendance signals with less friction.',
-              icon: Icons.play_circle_outline,
+            _LecturerCommandHero(
+              title: title,
+              subtitle: subtitle,
+              isBroadcasting: _broadcast.isRunning,
+              attendanceOpen: attendanceOpen,
             ),
-            const SizedBox(height: 12),
-            _buildRequiredField(_courseCodeController, 'Course Code'),
-            _buildRequiredField(_courseTitleController, 'Course Title'),
-            _buildRequiredField(_lecturerNameController, 'Lecturer Name'),
-            _buildRequiredField(_roomController, 'Room'),
-            _buildRequiredField(_tokenVersionController, 'Token Version'),
             const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.icon(
-                  onPressed: _submitting ? null : _createSession,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: Text(_submitting ? 'Creating...' : 'Create Session'),
+            if (activeSession != null) ...[
+              _LecturerActiveSessionCard(
+                session: activeSession,
+                broadcasting: _broadcast.isRunning,
+                onOpenClose: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
+                onStopSession: _stopSession,
+              ),
+              const SizedBox(height: 14),
+            ],
+            _LecturerCreateSessionPanel(
+              submitting: _submitting,
+              hasSession: hasSession,
+              courseCodeController: _courseCodeController,
+              courseTitleController: _courseTitleController,
+              lecturerNameController: _lecturerNameController,
+              tokenVersionController: _tokenVersionController,
+              roomSelector: _buildRoomSelector(),
+              onCreateSession: _submitting ? null : _createSession,
+            ),
+            if (_broadcastSnapshot != null) ...[
+              const SizedBox(height: 14),
+              _LecturerBroadcastPanel(snapshot: _broadcastSnapshot!),
+            ],
+            const SizedBox(height: 14),
+            _GuidanceCard(
+              icon: Icons.tips_and_updates_outlined,
+              title: 'Classroom operation',
+              message:
+                  'Create the session before class starts, confirm the room, then open attendance only when students are physically present.',
+              tone: _ChipTone.neutral,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LecturerCommandHero extends StatelessWidget {
+  const _LecturerCommandHero({
+    required this.title,
+    required this.subtitle,
+    required this.isBroadcasting,
+    required this.attendanceOpen,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool isBroadcasting;
+  final bool attendanceOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final accent = attendanceOpen ? Colors.green.shade500 : colors.primary;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF071E2E),
+            Color.lerp(const Color(0xFF071E2E), accent, 0.34)!,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF071E2E).withOpacity(0.2),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.2)),
                 ),
-                if (_lastSession != null)
-                  OutlinedButton.icon(
-                    onPressed: _stopSession,
-                    icon: const Icon(Icons.stop_circle_outlined),
-                    label: const Text('Stop Session'),
+                child: Icon(
+                  attendanceOpen
+                      ? Icons.wifi_tethering_outlined
+                      : Icons.dashboard_customize_outlined,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withOpacity(0.84),
+                            height: 1.45,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _GlassPill(
+                icon: Icons.sensors_outlined,
+                label: isBroadcasting ? 'Broadcast running' : 'Broadcast idle',
+              ),
+              _GlassPill(
+                icon: Icons.lock_open_outlined,
+                label: attendanceOpen ? 'Attendance open' : 'Attendance closed',
+              ),
+              const _GlassPill(
+                icon: Icons.room_preferences_outlined,
+                label: 'Room-aware beacon',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LecturerActiveSessionCard extends StatelessWidget {
+  const _LecturerActiveSessionCard({
+    required this.session,
+    required this.broadcasting,
+    required this.onOpenClose,
+    required this.onStopSession,
+  });
+
+  final SessionModel session;
+  final bool broadcasting;
+  final VoidCallback onOpenClose;
+  final VoidCallback onStopSession;
+
+  @override
+  Widget build(BuildContext context) {
+    final attendanceOpen = session.attendanceOpen;
+    final colors = Theme.of(context).colorScheme;
+    final title = session.courseTitle.trim().isEmpty
+        ? session.courseCode
+        : '${session.courseCode} - ${session.courseTitle}';
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: attendanceOpen
+                        ? Colors.green.shade50
+                        : colors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(17),
                   ),
-                OutlinedButton.icon(
-                  onPressed: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
-                  icon: Icon(
-                    _broadcast.isRunning
-                        ? Icons.wifi_tethering_off_outlined
-                        : Icons.wifi_tethering_outlined,
+                  child: Icon(
+                    attendanceOpen
+                        ? Icons.radio_button_checked
+                        : Icons.event_available_outlined,
+                    color: attendanceOpen ? Colors.green.shade700 : colors.primary,
                   ),
-                  label: Text(
-                    _broadcast.isRunning
-                        ? 'Close Attendance'
-                        : 'Open Attendance',
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        attendanceOpen
+                            ? 'Students can scan and submit attendance now.'
+                            : 'Session created. Open attendance when ready.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: colors.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                   ),
+                ),
+                _StatusChip(
+                  label: attendanceOpen ? 'Open' : 'Closed',
+                  tone: attendanceOpen ? _ChipTone.success : _ChipTone.neutral,
                 ),
               ],
             ),
-            if (_lastSession != null) ...[
-              const SizedBox(height: 16),
-              _MetricsStrip(
-                items: [
-                  _MetricItem(label: 'Session ID', value: '${_lastSession!.id}'),
-                  _MetricItem(label: 'Course', value: _lastSession!.courseCode),
-                  _MetricItem(label: 'Room', value: _lastSession!.room),
-                  _MetricItem(
-                    label: 'Attendance',
-                    value: _lastSession!.attendanceOpen ? 'Open' : 'Closed',
+            const SizedBox(height: 14),
+            _InlineInfoRows(
+              items: [
+                _ProfileDetailItem(label: 'Session ID', value: '${session.id}'),
+                _ProfileDetailItem(label: 'Lecturer', value: session.lecturerName),
+                _ProfileDetailItem(label: 'Room', value: session.room),
+                _ProfileDetailItem(
+                  label: 'Started',
+                  value: session.startsAt.toLocal().toString(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onOpenClose,
+                    icon: Icon(
+                      broadcasting
+                          ? Icons.wifi_tethering_off_outlined
+                          : Icons.wifi_tethering_outlined,
+                    ),
+                    label: Text(
+                      broadcasting ? 'Close Attendance' : 'Open Attendance',
+                    ),
                   ),
-                ],
-              ),
-            ],
-            if (_broadcastSnapshot != null) ...[
-              const SizedBox(height: 12),
-              _BroadcastPayloadCard(snapshot: _broadcastSnapshot!),
-            ],
+                ),
+                const SizedBox(width: 10),
+                OutlinedButton.icon(
+                  onPressed: onStopSession,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: const Text('Stop'),
+                ),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LecturerCreateSessionPanel extends StatelessWidget {
+  const _LecturerCreateSessionPanel({
+    required this.submitting,
+    required this.hasSession,
+    required this.courseCodeController,
+    required this.courseTitleController,
+    required this.lecturerNameController,
+    required this.tokenVersionController,
+    required this.roomSelector,
+    required this.onCreateSession,
+  });
+
+  final bool submitting;
+  final bool hasSession;
+  final TextEditingController courseCodeController;
+  final TextEditingController courseTitleController;
+  final TextEditingController lecturerNameController;
+  final TextEditingController tokenVersionController;
+  final Widget roomSelector;
+  final VoidCallback? onCreateSession;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: ExpansionTile(
+        initiallyExpanded: !hasSession,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        leading: const Icon(Icons.add_business_outlined),
+        title: Text(hasSession ? 'Create another session' : 'Create session'),
+        subtitle: Text(
+          hasSession
+              ? 'Open this only when you want to replace the current session.'
+              : 'Enter course details and select the registered classroom.',
+        ),
+        children: [
+          _buildRequiredField(courseCodeController, 'Course Code'),
+          _buildRequiredField(courseTitleController, 'Course Title'),
+          _buildRequiredField(lecturerNameController, 'Lecturer Name'),
+          roomSelector,
+          _buildRequiredField(tokenVersionController, 'Token Version'),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: FilledButton.icon(
+              onPressed: onCreateSession,
+              icon: const Icon(Icons.add_circle_outline),
+              label: Text(submitting ? 'Creating...' : 'Create Session'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LecturerBroadcastPanel extends StatelessWidget {
+  const _LecturerBroadcastPanel({required this.snapshot});
+
+  final BroadcastSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        leading: const Icon(Icons.monitor_heart_outlined),
+        title: const Text('Broadcast diagnostics'),
+        subtitle: const Text('Acoustic and BLE transmitter status'),
+        children: [
+          _BroadcastPayloadCard(snapshot: snapshot),
+        ],
       ),
     );
   }
@@ -2267,21 +3299,35 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
 
   @override
   Widget build(BuildContext context) {
+    final openCount = _sessions.where((session) => session.attendanceOpen).length;
+    final activeCount = _sessions.where((session) => session.active).length;
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ScreenHeroCard(
-            title: 'Live Sessions',
-            subtitle:
-                'Switch between active sessions quickly, keep the right one in focus, and tidy up old entries easily.',
-            icon: Icons.groups_2_outlined,
+          _LecturerLiveHero(
+            totalSessions: _sessions.length,
+            activeSessions: activeCount,
+            openSessions: openCount,
           ),
-          const SizedBox(height: 10),
-          FilledButton(
-            onPressed: _loadSessions,
-            child: const Text('Refresh Sessions'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Session Register',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _loadSessions,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Expanded(
@@ -2299,96 +3345,212 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                             separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (context, index) {
                               final session = _sessions[index];
-                              return Card(
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(18),
-                                  onTap: () => widget.onLoadSession(
-                                    session.id.toString(),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(14),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(10),
-                                          decoration: BoxDecoration(
-                                            color: session.active
-                                                ? Colors.green.shade50
-                                                : Theme.of(context)
-                                                    .colorScheme
-                                                    .surfaceContainerHighest,
-                                            borderRadius: BorderRadius.circular(14),
-                                          ),
-                                          child: Icon(
-                                            session.active
-                                                ? Icons.radio_button_checked
-                                                : Icons.event_note_outlined,
-                                            color: session.active
-                                                ? Colors.green.shade700
-                                                : Theme.of(context)
-                                                    .colorScheme
-                                                    .onSurfaceVariant,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      '${session.courseCode} - ${session.courseTitle}',
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .titleMedium
-                                                          ?.copyWith(
-                                                            fontWeight:
-                                                                FontWeight.w800,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                  if (session.active)
-                                                    const _StatusChip(
-                                                      label: 'Active',
-                                                      tone: _ChipTone.success,
-                                                    ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
-                                              _InlineInfoRows(
-                                                items: [
-                                                  _ProfileDetailItem(
-                                                    label: 'Room',
-                                                    value: session.room,
-                                                  ),
-                                                  _ProfileDetailItem(
-                                                    label: 'Started',
-                                                    value:
-                                                        '${session.startsAt.toLocal()}',
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        IconButton(
-                                          onPressed: () => _deleteSession(session),
-                                          icon: const Icon(Icons.delete_outline),
-                                          tooltip: 'Delete session',
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                              return _LecturerSessionListCard(
+                                session: session,
+                                selected:
+                                    SessionStore.currentSessionId == session.id.toString(),
+                                onLoad: () => widget.onLoadSession(
+                                  session.id.toString(),
                                 ),
+                                onDelete: () => _deleteSession(session),
                               );
                             },
                           ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LecturerLiveHero extends StatelessWidget {
+  const _LecturerLiveHero({
+    required this.totalSessions,
+    required this.activeSessions,
+    required this.openSessions,
+  });
+
+  final int totalSessions;
+  final int activeSessions;
+  final int openSessions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.65),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.groups_2_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Live Sessions',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Load, resume, or remove classroom sessions from one clean register.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _MetricsStrip(
+            items: [
+              _MetricItem(label: 'Total', value: '$totalSessions'),
+              _MetricItem(label: 'Active', value: '$activeSessions'),
+              _MetricItem(label: 'Open', value: '$openSessions'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LecturerSessionListCard extends StatelessWidget {
+  const _LecturerSessionListCard({
+    required this.session,
+    required this.selected,
+    required this.onLoad,
+    required this.onDelete,
+  });
+
+  final SessionModel session;
+  final bool selected;
+  final VoidCallback onLoad;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final title = session.courseTitle.trim().isEmpty
+        ? session.courseCode
+        : '${session.courseCode} - ${session.courseTitle}';
+    final tone = session.attendanceOpen
+        ? _ChipTone.success
+        : session.active
+            ? _ChipTone.neutral
+            : _ChipTone.danger;
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onLoad,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: session.attendanceOpen
+                          ? Colors.green.shade50
+                          : colors.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Icon(
+                      session.attendanceOpen
+                          ? Icons.wifi_tethering_outlined
+                          : Icons.event_note_outlined,
+                      color: session.attendanceOpen
+                          ? Colors.green.shade700
+                          : colors.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Room ${session.room} - ${session.startsAt.toLocal()}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: colors.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: 'Delete session',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _StatusChip(
+                    label: session.attendanceOpen
+                        ? 'Attendance Open'
+                        : session.active
+                            ? 'Session Ready'
+                            : 'Inactive',
+                    tone: tone,
+                  ),
+                  if (selected)
+                    const _StatusChip(
+                      label: 'Current',
+                      tone: _ChipTone.success,
+                    ),
+                  _StatusChip(
+                    label: 'Session ${session.id ?? '-'}',
+                    tone: _ChipTone.neutral,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2568,38 +3730,43 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final sessionLabel = (_currentSessionId == null || _currentSessionId!.trim().isEmpty)
+        ? 'No session selected'
+        : 'Session $_currentSessionId';
+    final rooms = _items
+        .map((item) => (item.room ?? '').trim())
+        .where((room) => room.isNotEmpty)
+        .toSet()
+        .length;
+    final modes = _items.map(_detectReportMode).toSet().length;
+
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ScreenHeroCard(
-            title: 'Validation Report',
-            subtitle:
-                'See the current session attendance at a glance and export a clean class list instantly.',
-            icon: Icons.analytics_outlined,
+          _LecturerReportHero(
+            sessionLabel: sessionLabel,
+            totalRows: _items.length,
+            roomCount: rooms,
+            modeCount: modes,
           ),
-          const SizedBox(height: 6),
-          Text(
-            _currentSessionId == null
-                ? 'No current session selected. Showing none until a session is selected.'
-                : 'Current session: $_currentSessionId',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
-                child: FilledButton(
+                child: FilledButton.icon(
                   onPressed: _loading ? null : _loadReport,
-                  child: const Text('Refresh Report'),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: OutlinedButton(
+                child: OutlinedButton.icon(
                   onPressed: (_loading || _exporting) ? null : _exportCurrentSessionCsv,
-                  child: Text(_exporting ? 'Exporting...' : 'Export CSV'),
+                  icon: const Icon(Icons.ios_share_outlined),
+                  label: Text(_exporting ? 'Exporting...' : 'Export CSV'),
                 ),
               ),
             ],
@@ -2611,88 +3778,223 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                 : _error != null
                     ? _ErrorState(message: _error!, onRetry: _loadReport)
                     : _items.isEmpty
-                        ? const _EmptyState(title: 'No validation report rows for the current session.')
+                        ? _EmptyState(
+                            title: _currentSessionId == null
+                                ? 'Select a session before loading reports.'
+                                : 'No attendance rows for this session yet.',
+                          )
                         : ListView.separated(
                             itemCount: _items.length,
                             separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (_, index) {
                               final row = _items[index];
-                              final courseLabel =
-                                  '${row.courseCode ?? ''}${(row.courseTitle ?? '').isNotEmpty ? " - ${row.courseTitle}" : ""}'
-                                      .trim();
-                              return Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(14),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          CircleAvatar(
-                                            radius: 18,
-                                            backgroundColor: Theme.of(context)
-                                                .colorScheme
-                                                .primaryContainer,
-                                            child: Text(
-                                              '${index + 1}',
-                                              style: TextStyle(
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .primary,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              row.studentName ?? 'Unknown Student',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      _InlineInfoRows(
-                                        items: [
-                                          _ProfileDetailItem(
-                                            label: 'Matric Number',
-                                            value: row.studentId,
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Course',
-                                            value: courseLabel.isEmpty
-                                                ? '-'
-                                                : courseLabel,
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Lecturer',
-                                            value: row.lecturerName ?? '-',
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Room',
-                                            value: row.room ?? '-',
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Proof',
-                                            value:
-                                                '#${row.proofId} / Session ${row.sessionId}',
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                              return _LecturerReportRowCard(
+                                index: index + 1,
+                                row: row,
+                                mode: _detectReportMode(row),
                               );
                             },
                           ),
           ),
         ],
+      ),
+    );
+  }
+
+  String _detectReportMode(ValidationReportItemModel row) {
+    final beacon = (row.beaconProof ?? '').trim().isNotEmpty;
+    final wifi = (row.wifiClientIp ?? '').trim().isNotEmpty;
+    final hasBle = (row.bleAgeSeconds != null) || beacon;
+    final hasAcoustic = row.acousticAgeSeconds != null;
+    return _proofScanModeLabel(
+      acousticToken: hasAcoustic ? 'acoustic' : '',
+      bleNonce: hasBle ? 'ble' : '',
+      wifiProof: wifi ? 'wifi' : '',
+      beaconProof: beacon ? 'beacon' : '',
+    );
+  }
+}
+
+class _LecturerReportHero extends StatelessWidget {
+  const _LecturerReportHero({
+    required this.sessionLabel,
+    required this.totalRows,
+    required this.roomCount,
+    required this.modeCount,
+  });
+
+  final String sessionLabel;
+  final int totalRows;
+  final int roomCount;
+  final int modeCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colors.primaryContainer.withOpacity(0.92),
+            Colors.white,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.outlineVariant.withOpacity(0.65)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.72),
+                  borderRadius: BorderRadius.circular(17),
+                ),
+                child: Icon(Icons.analytics_outlined, color: colors.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Validation Report',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Clean attendance register for $sessionLabel.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _MetricsStrip(
+            items: [
+              _MetricItem(label: 'Students', value: '$totalRows'),
+              _MetricItem(label: 'Rooms', value: '$roomCount'),
+              _MetricItem(label: 'Modes', value: '$modeCount'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LecturerReportRowCard extends StatelessWidget {
+  const _LecturerReportRowCard({
+    required this.index,
+    required this.row,
+    required this.mode,
+  });
+
+  final int index;
+  final ValidationReportItemModel row;
+  final String mode;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final courseLabel =
+        '${row.courseCode ?? ''}${(row.courseTitle ?? '').isNotEmpty ? " - ${row.courseTitle}" : ""}'
+            .trim();
+    final studentName = (row.studentName ?? '').trim().isEmpty
+        ? 'Unknown Student'
+        : row.studentName!.trim();
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Text(
+                    '$index',
+                    style: TextStyle(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        studentName,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        row.studentId,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colors.onSurfaceVariant,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                _StatusChip(
+                  label: mode,
+                  tone: _proofScanModeTone(mode),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _InlineInfoRows(
+              items: [
+                _ProfileDetailItem(
+                  label: 'Course',
+                  value: courseLabel.isEmpty ? '-' : courseLabel,
+                ),
+                _ProfileDetailItem(
+                  label: 'Lecturer',
+                  value: row.lecturerName ?? '-',
+                ),
+                _ProfileDetailItem(
+                  label: 'Room',
+                  value: row.room ?? '-',
+                ),
+                _ProfileDetailItem(
+                  label: 'Proof',
+                  value: '#${row.proofId} / Session ${row.sessionId}',
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
