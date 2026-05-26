@@ -15,6 +15,7 @@ class BleScanService {
       '0000feaa-0000-1000-8000-00805f9b34fb';
   static const int _manufacturerId = 0x0A91;
   static const int _appleManufacturerId = 0x004C;
+  static const int _rssiPreferenceMarginDb = 10;
   static const Duration _scanWindow = Duration(milliseconds: 2500);
   static const Duration _betweenWindows = Duration(milliseconds: 180);
   final _transport = SignalTransportService();
@@ -89,25 +90,6 @@ class BleScanService {
         _mergeResults(seen, FlutterBluePlus.lastScanResults);
         await FlutterBluePlus.stopScan();
 
-        final collected = seen.values.toList()
-          ..sort((a, b) => b.rssi.compareTo(a.rssi));
-        final parsedHit = _findBestLecturerPayload(collected);
-        if (parsedHit != null) {
-          final now = DateTime.now().toUtc();
-          final elapsed = DateTime.now().difference(startedAt).inSeconds;
-          return ScanResultModel(
-            acousticToken: '',
-            observedAt: now,
-            bleNonce: parsedHit.rawToken,
-            rssi: parsedHit.rssi,
-            sessionId: parsedHit.payload.sessionId,
-            issuedAt: parsedHit.payload.issuedAt,
-            source: parsedHit.source,
-            diagnostic:
-                'BLE lecturer broadcast found after $scanWindows scan window(s), about ${elapsed}s. ${_rssiQuality(parsedHit.rssi)} ${parsedHit.diagnostic}',
-          );
-        }
-
         if (DateTime.now().isBefore(deadline)) {
           await Future.delayed(_betweenWindows);
         }
@@ -132,24 +114,17 @@ class BleScanService {
       final manufacturerData = strongest.advertisementData.manufacturerData;
       final serviceData = strongest.advertisementData.serviceData;
       final scanSummary = _scanSummary(results);
+      final lecturerHit = _findBestLecturerPayload(results);
       final beaconHit = _findBestRegisteredBeacon(results);
 
-      if (beaconHit != null) {
-        return ScanResultModel(
-          acousticToken: '',
-          observedAt: now,
-          bleNonce: null,
-          rssi: beaconHit.rssi,
-          beaconProof: beaconHit.proof,
-          beaconType: beaconHit.type,
-          beaconUuid: beaconHit.uuid,
-          beaconMajor: beaconHit.major,
-          beaconMinor: beaconHit.minor,
-          beaconNamespaceId: beaconHit.namespaceId,
-          beaconInstanceId: beaconHit.instanceId,
-          source: beaconHit.source,
-          diagnostic:
-              'Registered beacon candidate detected. ${_rssiQuality(beaconHit.rssi)} ${beaconHit.diagnostic} $scanSummary',
+      if (lecturerHit != null || beaconHit != null) {
+        return _buildPreferredBleResult(
+          now: now,
+          elapsedSeconds: DateTime.now().difference(startedAt).inSeconds,
+          scanWindows: scanWindows,
+          lecturerHit: lecturerHit,
+          beaconHit: beaconHit,
+          scanSummary: scanSummary,
         );
       }
 
@@ -175,6 +150,103 @@ class BleScanService {
             'BLE scan failed before a lecturer nonce could be parsed: ${error.runtimeType}. ${error.toString()}',
       );
     }
+  }
+
+  ScanResultModel _buildPreferredBleResult({
+    required DateTime now,
+    required int elapsedSeconds,
+    required int scanWindows,
+    required _ParsedBleHit? lecturerHit,
+    required _ParsedBeaconHit? beaconHit,
+    required String scanSummary,
+  }) {
+    final selection = _selectBleEvidence(
+      lecturerHit: lecturerHit,
+      beaconHit: beaconHit,
+    );
+    final includeLecturer = lecturerHit != null &&
+        (selection == _BleEvidenceSelection.lecturer ||
+            selection == _BleEvidenceSelection.both);
+    final includeBeacon = beaconHit != null &&
+        (selection == _BleEvidenceSelection.beacon ||
+            selection == _BleEvidenceSelection.both);
+    final selectedRssi = _selectedRssi(
+      lecturerHit: includeLecturer ? lecturerHit : null,
+      beaconHit: includeBeacon ? beaconHit : null,
+    );
+    final source = switch (selection) {
+      _BleEvidenceSelection.lecturer => lecturerHit?.source ?? 'ble_scan_token',
+      _BleEvidenceSelection.beacon =>
+        beaconHit?.source ?? 'ble_scan_beacon_eddystone_uid',
+      _BleEvidenceSelection.both => 'ble_scan_lecturer_and_beacon',
+    };
+    final modeSummary = switch (selection) {
+      _BleEvidenceSelection.lecturer => 'Selected lecturer BLE because it was clearly stronger.',
+      _BleEvidenceSelection.beacon => 'Selected room beacon because it was clearly stronger.',
+      _BleEvidenceSelection.both =>
+        'Selected lecturer BLE + room beacon because RSSI values were within ${_rssiPreferenceMarginDb}dB.',
+    };
+
+    return ScanResultModel(
+      acousticToken: '',
+      observedAt: now,
+      bleNonce: includeLecturer ? lecturerHit?.rawToken : null,
+      rssi: selectedRssi,
+      sessionId: includeLecturer ? lecturerHit?.payload.sessionId : null,
+      issuedAt: includeLecturer ? lecturerHit?.payload.issuedAt : null,
+      beaconProof: includeBeacon ? beaconHit?.proof : null,
+      beaconType: includeBeacon ? beaconHit?.type : null,
+      beaconUuid: includeBeacon ? beaconHit?.uuid : null,
+      beaconMajor: includeBeacon ? beaconHit?.major : null,
+      beaconMinor: includeBeacon ? beaconHit?.minor : null,
+      beaconNamespaceId: includeBeacon ? beaconHit?.namespaceId : null,
+      beaconInstanceId: includeBeacon ? beaconHit?.instanceId : null,
+      source: source,
+      diagnostic: [
+        'BLE evidence collected after $scanWindows scan window(s), about ${elapsedSeconds}s.',
+        modeSummary,
+        if (lecturerHit != null)
+          'Lecturer BLE RSSI ${lecturerHit.rssi}dBm. ${lecturerHit.diagnostic}',
+        if (beaconHit != null)
+          'Beacon RSSI ${beaconHit.rssi}dBm. ${beaconHit.diagnostic}',
+        if (selectedRssi != null) _rssiQuality(selectedRssi),
+        scanSummary,
+      ].join(' '),
+    );
+  }
+
+  _BleEvidenceSelection _selectBleEvidence({
+    required _ParsedBleHit? lecturerHit,
+    required _ParsedBeaconHit? beaconHit,
+  }) {
+    if (lecturerHit != null && beaconHit == null) {
+      return _BleEvidenceSelection.lecturer;
+    }
+    if (lecturerHit == null && beaconHit != null) {
+      return _BleEvidenceSelection.beacon;
+    }
+    if (lecturerHit == null || beaconHit == null) {
+      return _BleEvidenceSelection.beacon;
+    }
+
+    final difference = lecturerHit.rssi - beaconHit.rssi;
+    if (difference >= _rssiPreferenceMarginDb) {
+      return _BleEvidenceSelection.lecturer;
+    }
+    if (difference <= -_rssiPreferenceMarginDb) {
+      return _BleEvidenceSelection.beacon;
+    }
+    return _BleEvidenceSelection.both;
+  }
+
+  int? _selectedRssi({
+    required _ParsedBleHit? lecturerHit,
+    required _ParsedBeaconHit? beaconHit,
+  }) {
+    if (lecturerHit != null && beaconHit != null) {
+      return lecturerHit.rssi >= beaconHit.rssi ? lecturerHit.rssi : beaconHit.rssi;
+    }
+    return lecturerHit?.rssi ?? beaconHit?.rssi;
   }
 
   String? _decodeServicePayload(Map<Guid, List<int>> serviceData) {
@@ -478,6 +550,8 @@ class _ParsedBeaconHit {
   final String source;
   final String diagnostic;
 }
+
+enum _BleEvidenceSelection { lecturer, beacon, both }
 
 class _IBeaconFrame {
   const _IBeaconFrame({

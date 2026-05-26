@@ -1085,13 +1085,15 @@ class _StudentScanPageState extends State<StudentScanPage> {
         (scan.source == 'ble_scan_token' ||
             scan.source == 'ble_scan_manufacturer_data' ||
             scan.source == 'ble_scan_service_data' ||
+            scan.source == 'ble_scan_lecturer_and_beacon' ||
             scan.source == 'web_broadcast_cache');
   }
 
   bool _isTrustedBeaconSignal(ScanResultModel scan) {
     return (scan.beaconProof?.trim().isNotEmpty ?? false) &&
         (scan.source == 'ble_scan_beacon_eddystone_uid' ||
-            scan.source == 'ble_scan_beacon_ibeacon');
+            scan.source == 'ble_scan_beacon_ibeacon' ||
+            scan.source == 'ble_scan_lecturer_and_beacon');
   }
 
   Future<SessionModel?> _latestActiveSessionForBeacon() async {
