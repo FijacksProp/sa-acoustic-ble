@@ -20,6 +20,20 @@ from .serializers import (
 )
 
 
+class HealthCheckAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(
+            {
+                "status": "ok",
+                "service": "sa-acoustic-ble-api",
+                "time": timezone.now().isoformat(),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class SessionViewSet(viewsets.ModelViewSet):
     serializer_class = SessionSerializer
 

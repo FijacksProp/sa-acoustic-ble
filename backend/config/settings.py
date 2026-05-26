@@ -10,7 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,15 +22,37 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(name: str, default: list[str] | None = None) -> list[str]:
+    raw = os.environ.get(name)
+    if not raw:
+        return default or []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-notjz=ee^^x-irm%yh2tm1ps83-7#^2lw+)s07=qh#om_&zi*k'
+DEV_SECRET_KEY = 'django-insecure-notjz=ee^^x-irm%yh2tm1ps83-7#^2lw+)s07=qh#om_&zi*k'
+SECRET_KEY = os.environ.get("SECRET_KEY", DEV_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_bool("DJANGO_DEBUG", default=True)
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0"]
+if not DEBUG and SECRET_KEY == DEV_SECRET_KEY:
+    raise ImproperlyConfigured("Set SECRET_KEY before running the backend in production.")
+
 if DEBUG:
     ALLOWED_HOSTS = ["*"]
+else:
+    ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", default=[".onrender.com"])
+    render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+    if render_hostname and render_hostname not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(render_hostname)
 
 
 # Application definition
@@ -56,6 +81,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+if not DEBUG or _env_bool("ENABLE_WHITENOISE", default=False):
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
@@ -79,12 +107,31 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    import dj_database_url
+
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
-}
+    if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
+        DATABASES["default"].setdefault("OPTIONS", {})
+        DATABASES["default"]["OPTIONS"].setdefault(
+            "sslmode",
+            os.environ.get("DB_SSLMODE", "require"),
+        )
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -122,11 +169,35 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STATICFILES_STORAGE_BACKEND = (
+    "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    if not DEBUG or _env_bool("ENABLE_WHITENOISE", default=False)
+    else "django.contrib.staticfiles.storage.StaticFilesStorage"
+)
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": STATICFILES_STORAGE_BACKEND,
+    },
+}
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = _env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=["https://*.onrender.com"],
+)
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",
     r"^http://127\.0\.0\.1:\d+$",
 ]
+CORS_ALLOWED_ORIGINS = _env_list("CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_ALL_ORIGINS = _env_bool("CORS_ALLOW_ALL_ORIGINS", default=False)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

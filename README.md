@@ -59,7 +59,7 @@ sa-acoustic-ble/
 | Acoustic signal | Android native speaker/microphone processing |
 | Backend | Django and Django REST Framework |
 | Authentication | DRF token authentication |
-| Database | SQLite for prototype development |
+| Database | SQLite locally, PostgreSQL/Supabase for hosted deployment |
 | Version control | Git and GitHub |
 
 ## Backend Setup
@@ -70,7 +70,7 @@ From the project root:
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install django djangorestframework django-cors-headers
+pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
 ```
@@ -81,6 +81,12 @@ For local browser testing on the same PC:
 
 ```powershell
 python manage.py runserver 127.0.0.1:8000
+```
+
+For the hosted Render + Supabase setup, see:
+
+```text
+docs/RENDER_SUPABASE_DEPLOYMENT.md
 ```
 
 ## Mobile App Setup

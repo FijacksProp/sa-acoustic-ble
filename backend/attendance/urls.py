@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AttendanceProofListCreateAPIView,
     BeaconRoomListAPIView,
+    HealthCheckAPIView,
     ResolveBeaconSessionAPIView,
     SessionViewSet,
     RegisterAPIView,
@@ -19,6 +20,7 @@ router.register("sessions", SessionViewSet, basename="session")
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("health/", HealthCheckAPIView.as_view(), name="health-check"),
     path(
         "attendance/",
         AttendanceProofListCreateAPIView.as_view(),
