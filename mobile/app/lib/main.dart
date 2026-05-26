@@ -317,7 +317,6 @@ class _AuthScreenState extends State<AuthScreen> {
   final _auth = AuthService();
   final _loginForm = GlobalKey<FormState>();
   final _registerForm = GlobalKey<FormState>();
-  final _apiBaseUrlController = TextEditingController();
 
   final _loginIdentifierController = TextEditingController();
   final _loginPasswordController = TextEditingController();
@@ -331,13 +330,6 @@ class _AuthScreenState extends State<AuthScreen> {
   final bool _capturingRegistrationFace = false;
 
   bool _loading = false;
-  bool _savingApiUrl = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
-  }
 
   @override
   void dispose() {
@@ -347,35 +339,7 @@ class _AuthScreenState extends State<AuthScreen> {
     _regUsernameController.dispose();
     _regMatricController.dispose();
     _regPasswordController.dispose();
-    _apiBaseUrlController.dispose();
     super.dispose();
-  }
-
-  Future<void> _saveApiBaseUrl() async {
-    final value = _apiBaseUrlController.text.trim();
-    if (value.isEmpty ||
-        (!value.startsWith('http://') && !value.startsWith('https://'))) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enter a backend URL starting with http:// or https://'),
-        ),
-      );
-      return;
-    }
-    setState(() {
-      _savingApiUrl = true;
-    });
-    await ApiConfig.setRuntimeBaseUrl(value);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
-      _savingApiUrl = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Backend URL saved: ${ApiConfig.currentBaseUrl}')),
-    );
   }
 
   Future<void> _login() async {
@@ -490,12 +454,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 key: _loginForm,
                 child: Column(
                   children: [
-                    _BackendUrlCard(
-                      controller: _apiBaseUrlController,
-                      saving: _savingApiUrl,
-                      onSave: _saveApiBaseUrl,
-                    ),
-                    const SizedBox(height: 12),
                     _buildRequiredField(
                       _loginIdentifierController,
                       'Identifier (Matric or Username)',
@@ -526,12 +484,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 key: _registerForm,
                 child: Column(
                   children: [
-                    _BackendUrlCard(
-                      controller: _apiBaseUrlController,
-                      saving: _savingApiUrl,
-                      onSave: _saveApiBaseUrl,
-                    ),
-                    const SizedBox(height: 12),
                     _buildRequiredField(_regNameController, 'Full Name'),
                     if (_role == 'student')
                       _buildRequiredField(_regMatricController, 'Matric Number'),
@@ -4293,15 +4245,26 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
             ],
           ),
           const SizedBox(height: 14),
-          Text(
-            'Backend Connection',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 10),
-          _BackendUrlCard(
-            controller: _apiBaseUrlController,
-            saving: _savingApiUrl,
-            onSave: _saveApiBaseUrl,
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: Text(
+              'Advanced Connection Settings',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            subtitle: Text(
+              'Only change this if you need to switch away from the hosted server.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.black54,
+                  ),
+            ),
+            children: [
+              const SizedBox(height: 10),
+              _BackendUrlCard(
+                controller: _apiBaseUrlController,
+                saving: _savingApiUrl,
+                onSave: _saveApiBaseUrl,
+              ),
+            ],
           ),
         ],
       ),
