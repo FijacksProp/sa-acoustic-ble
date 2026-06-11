@@ -1,0 +1,1916 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart Attendance System - Professional UI Prototype</title>
+  <style>
+    :root {
+      --bg: #f5f2eb;
+      --bg-2: #ebe5d9;
+      --panel: #fffdf8;
+      --panel-2: #f9f6ef;
+      --ink: #142027;
+      --ink-soft: #3c4a52;
+      --muted: #768087;
+      --line: #d9d1c4;
+      --line-strong: #c8bfb1;
+      --brand: #0a5f68;
+      --brand-2: #0f8f7f;
+      --navy: #083247;
+      --blue: #0d67a5;
+      --amber: #b77d20;
+      --green: #1c8f5f;
+      --red: #b44135;
+      --cyan-soft: #ddf2ef;
+      --blue-soft: #deedf8;
+      --amber-soft: #f5ead3;
+      --red-soft: #f7dfdb;
+      --shadow: 0 22px 70px rgba(20, 32, 39, 0.12);
+      --shadow-soft: 0 12px 34px rgba(20, 32, 39, 0.08);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --radius-sm: 12px;
+      --sidebar: 284px;
+      --bottom-nav: 76px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      font-family: Avenir Next, Avenir, "Segoe UI", Calibri, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(15, 143, 127, 0.2), transparent 30rem),
+        radial-gradient(circle at top right, rgba(183, 125, 32, 0.16), transparent 28rem),
+        linear-gradient(135deg, var(--bg) 0%, #faf8f2 42%, var(--bg-2) 100%);
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      pointer-events: none;
+      content: "";
+      opacity: 0.6;
+      background-image:
+        linear-gradient(rgba(8, 50, 71, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(8, 50, 71, 0.04) 1px, transparent 1px);
+      background-size: 38px 38px;
+      mask-image: linear-gradient(to bottom, black, transparent 86%);
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      min-height: 100vh;
+    }
+
+    .auth-screen {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.92fr) minmax(460px, 1.08fr);
+      gap: 24px;
+      width: min(1180px, calc(100% - 32px));
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 28px 0;
+      align-items: stretch;
+    }
+
+    .auth-brand {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 660px;
+      padding: 34px;
+      overflow: hidden;
+      border: 1px solid rgba(217, 209, 196, 0.9);
+      border-radius: 36px;
+      color: white;
+      background:
+        linear-gradient(145deg, rgba(8, 50, 71, 0.98), rgba(10, 95, 104, 0.94)),
+        radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.22), transparent 20rem);
+      box-shadow: var(--shadow);
+    }
+
+    .auth-brand::after {
+      position: absolute;
+      right: -90px;
+      bottom: -110px;
+      width: 330px;
+      height: 330px;
+      content: "";
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 48px rgba(255, 255, 255, 0.04),
+        0 0 0 108px rgba(255, 255, 255, 0.025);
+    }
+
+    .brand-row,
+    .app-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      height: 48px;
+      flex: 0 0 auto;
+      border-radius: 18px;
+      color: white;
+      background: linear-gradient(145deg, var(--brand-2), var(--blue));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+    }
+
+    .mark svg {
+      width: 26px;
+      height: 26px;
+    }
+
+    .brand-title {
+      display: grid;
+      line-height: 1.05;
+    }
+
+    .brand-title span:last-child {
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .auth-copy {
+      position: relative;
+      z-index: 2;
+      max-width: 520px;
+      margin-top: auto;
+    }
+
+    .auth-copy .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 18px;
+      color: #ffe3b0;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .auth-copy h1 {
+      margin: 0;
+      font-size: clamp(42px, 5vw, 76px);
+      line-height: 0.92;
+      letter-spacing: -0.07em;
+    }
+
+    .auth-copy p {
+      margin: 20px 0 0;
+      color: rgba(255, 255, 255, 0.74);
+      font-size: 18px;
+      line-height: 1.62;
+    }
+
+    .auth-proof {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 34px;
+    }
+
+    .auth-proof span {
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .auth-panel {
+      display: grid;
+      place-items: center;
+      min-height: 660px;
+      padding: 26px;
+      border: 1px solid rgba(217, 209, 196, 0.86);
+      border-radius: 36px;
+      background: rgba(255, 253, 248, 0.76);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px);
+    }
+
+    .auth-card {
+      width: min(440px, 100%);
+    }
+
+    .segment {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      padding: 6px;
+      margin-bottom: 22px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel-2);
+    }
+
+    .segment button {
+      min-height: 42px;
+      border: 0;
+      border-radius: 999px;
+      color: var(--muted);
+      background: transparent;
+      font-weight: 900;
+    }
+
+    .segment button.active {
+      color: var(--ink);
+      background: var(--panel);
+      box-shadow: 0 8px 20px rgba(20, 32, 39, 0.08);
+    }
+
+    .auth-form {
+      display: none;
+      animation: fadeUp 260ms ease both;
+    }
+
+    .auth-form.active {
+      display: block;
+    }
+
+    .auth-form h2 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: -0.05em;
+    }
+
+    .auth-form > p {
+      margin: 0 0 22px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .field-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      color: var(--ink-soft);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: white;
+      color: var(--ink);
+      padding: 0 14px;
+      outline: 0;
+      transition: 160ms ease;
+    }
+
+    textarea {
+      min-height: 96px;
+      padding-top: 12px;
+      resize: vertical;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: rgba(15, 143, 127, 0.76);
+      box-shadow: 0 0 0 4px rgba(15, 143, 127, 0.12);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 48px;
+      border: 0;
+      border-radius: 15px;
+      padding: 0 16px;
+      font-weight: 900;
+      transition: 180ms ease;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      color: white;
+      background: var(--navy);
+      box-shadow: 0 12px 26px rgba(8, 50, 71, 0.24);
+    }
+
+    .button.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 34px rgba(8, 50, 71, 0.3);
+    }
+
+    .button.secondary {
+      color: var(--ink);
+      border: 1px solid var(--line);
+      background: white;
+    }
+
+    .button.soft {
+      color: var(--brand);
+      background: var(--cyan-soft);
+    }
+
+    .button.danger {
+      color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .button.full {
+      width: 100%;
+      margin-top: 16px;
+    }
+
+    .role-select {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .role-option {
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: white;
+      color: var(--muted);
+      font-weight: 900;
+      text-align: left;
+    }
+
+    .role-option.active {
+      color: var(--brand);
+      border-color: rgba(15, 143, 127, 0.42);
+      background: var(--cyan-soft);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 18px;
+      border-right: 1px solid rgba(217, 209, 196, 0.82);
+      background: rgba(255, 253, 248, 0.74);
+      backdrop-filter: blur(22px);
+    }
+
+    .sidebar-inner {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      gap: 18px;
+    }
+
+    .app-brand .brand-title span:last-child {
+      color: var(--muted);
+    }
+
+    .role-switcher {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel-2);
+    }
+
+    .role-switcher button {
+      min-height: 38px;
+      border: 0;
+      border-radius: 12px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .role-switcher button.active {
+      color: var(--ink);
+      background: white;
+      box-shadow: 0 6px 16px rgba(20, 32, 39, 0.08);
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      border-radius: 16px;
+      color: var(--ink-soft);
+      background: transparent;
+      padding: 0 12px;
+      font-weight: 900;
+      text-align: left;
+    }
+
+    .nav-item svg {
+      width: 20px;
+      height: 20px;
+      color: var(--muted);
+    }
+
+    .nav-item.active,
+    .nav-item:hover {
+      color: var(--navy);
+      background: white;
+      box-shadow: 0 10px 24px rgba(20, 32, 39, 0.08);
+    }
+
+    .nav-item.active svg,
+    .nav-item:hover svg {
+      color: var(--brand);
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--panel);
+    }
+
+    .mini-status {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 6px rgba(28, 143, 95, 0.14);
+    }
+
+    .sidebar-footer p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 24px;
+      padding-bottom: 92px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    .page-title h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 46px);
+      letter-spacing: -0.065em;
+      line-height: 1;
+    }
+
+    .page-title p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 11px;
+      border-radius: 999px;
+      color: var(--ink-soft);
+      border: 1px solid var(--line);
+      background: rgba(255, 253, 248, 0.76);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .pill.success {
+      color: var(--green);
+      border-color: rgba(28, 143, 95, 0.22);
+      background: var(--cyan-soft);
+    }
+
+    .pill.warn {
+      color: var(--amber);
+      border-color: rgba(183, 125, 32, 0.22);
+      background: var(--amber-soft);
+    }
+
+    .view {
+      display: none;
+      animation: fadeUp 260ms ease both;
+    }
+
+    .view.active {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    .span-9 { grid-column: span 9; }
+    .span-12 { grid-column: span 12; }
+
+    .card {
+      position: relative;
+      padding: 20px;
+      border: 1px solid rgba(217, 209, 196, 0.9);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 253, 248, 0.86);
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+    }
+
+    .card.flat {
+      box-shadow: none;
+      background: var(--panel);
+    }
+
+    .hero-card {
+      min-height: 260px;
+      color: white;
+      background:
+        linear-gradient(135deg, rgba(8, 50, 71, 0.98), rgba(10, 95, 104, 0.92)),
+        radial-gradient(circle at 78% 12%, rgba(255, 255, 255, 0.25), transparent 16rem);
+    }
+
+    .hero-card::after {
+      position: absolute;
+      right: -64px;
+      bottom: -92px;
+      width: 260px;
+      height: 260px;
+      content: "";
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 50%;
+      box-shadow: 0 0 0 48px rgba(255, 255, 255, 0.04);
+    }
+
+    .card h2,
+    .card h3 {
+      margin: 0;
+      letter-spacing: -0.045em;
+    }
+
+    .card h2 {
+      font-size: 32px;
+    }
+
+    .card h3 {
+      font-size: 20px;
+    }
+
+    .card-subtitle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .hero-card .card-subtitle {
+      color: rgba(255, 255, 255, 0.74);
+      max-width: 580px;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 22px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .metric-box {
+      padding: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .metric-box strong {
+      display: block;
+      color: white;
+      font-size: 26px;
+      letter-spacing: -0.05em;
+    }
+
+    .metric-box span {
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .stat-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 150px;
+      justify-content: space-between;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .stat-value {
+      font-size: 34px;
+      font-weight: 900;
+      letter-spacing: -0.06em;
+    }
+
+    .stat-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .quick-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .quick-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid rgba(217, 209, 196, 0.82);
+      border-radius: 18px;
+      background: white;
+    }
+
+    .quick-icon {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 15px;
+      color: var(--brand);
+      background: var(--cyan-soft);
+      font-weight: 900;
+    }
+
+    .quick-row h4 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: -0.02em;
+    }
+
+    .quick-row p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .scan-panel {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.86fr) minmax(0, 1.14fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .scan-orb {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 380px;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 18%, transparent 19%),
+        conic-gradient(from 45deg, var(--brand), var(--blue), var(--amber), var(--brand));
+      overflow: hidden;
+    }
+
+    .scan-orb::before,
+    .scan-orb::after {
+      position: absolute;
+      inset: 58px;
+      content: "";
+      border: 1px solid rgba(255, 255, 255, 0.62);
+      border-radius: 50%;
+      animation: pulse 2.8s ease-out infinite;
+    }
+
+    .scan-orb::after {
+      inset: 24px;
+      animation-delay: 0.9s;
+    }
+
+    .scan-core {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      width: 160px;
+      height: 160px;
+      border: 12px solid rgba(255, 255, 255, 0.5);
+      border-radius: 50%;
+      color: var(--navy);
+      background: white;
+      box-shadow: 0 20px 60px rgba(8, 50, 71, 0.24);
+      text-align: center;
+      font-weight: 1000;
+    }
+
+    .scan-core span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .proof-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .proof-card {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: white;
+    }
+
+    .proof-card .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .proof-card strong {
+      font-size: 15px;
+      letter-spacing: -0.03em;
+    }
+
+    .proof-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .rssi {
+      font-size: 22px;
+      font-weight: 1000;
+      letter-spacing: -0.05em;
+    }
+
+    .progress {
+      height: 10px;
+      margin-top: 12px;
+      border-radius: 999px;
+      background: #edf0ef;
+      overflow: hidden;
+    }
+
+    .progress span {
+      display: block;
+      width: var(--w, 66%);
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--brand), var(--blue));
+    }
+
+    .receipt {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 20px;
+      background: var(--panel-2);
+    }
+
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .receipt-row strong {
+      color: var(--ink);
+      text-align: right;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .form-grid .full-row {
+      grid-column: 1 / -1;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: white;
+    }
+
+    table {
+      width: 100%;
+      min-width: 740px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 14px 12px;
+      border-bottom: 1px solid #ece6dc;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 1000;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: #fbf8f1;
+    }
+
+    td {
+      color: var(--ink-soft);
+      font-weight: 700;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .avatar-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 13px;
+      color: white;
+      background: var(--navy);
+      font-size: 12px;
+      font-weight: 1000;
+    }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 80;
+      max-width: min(420px, calc(100% - 32px));
+      padding: 14px 16px;
+      border: 1px solid rgba(28, 143, 95, 0.28);
+      border-radius: 18px;
+      color: var(--green);
+      background: rgba(255, 253, 248, 0.95);
+      box-shadow: var(--shadow);
+      font-weight: 900;
+      transform: translateY(130%);
+      opacity: 0;
+      transition: 260ms ease;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .mobile-bar {
+      display: none;
+    }
+
+    .bottom-nav {
+      display: none;
+    }
+
+    .hide {
+      display: none !important;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes pulse {
+      from {
+        opacity: 0.88;
+        transform: scale(0.86);
+      }
+      to {
+        opacity: 0;
+        transform: scale(1.22);
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .auth-screen {
+        grid-template-columns: 1fr;
+      }
+
+      .auth-brand,
+      .auth-panel {
+        min-height: auto;
+      }
+
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .mobile-bar {
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid rgba(217, 209, 196, 0.82);
+        background: rgba(255, 253, 248, 0.88);
+        backdrop-filter: blur(18px);
+      }
+
+      .mobile-bar .app-brand .mark {
+        width: 40px;
+        height: 40px;
+        border-radius: 15px;
+      }
+
+      .mobile-menu {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 10px 14px;
+        border-bottom: 1px solid rgba(217, 209, 196, 0.62);
+        background: rgba(245, 242, 235, 0.92);
+      }
+
+      .mobile-menu .nav-item {
+        width: auto;
+        min-width: max-content;
+        padding: 0 14px;
+        background: white;
+      }
+
+      .main {
+        padding: 16px;
+        padding-bottom: calc(var(--bottom-nav) + 20px);
+      }
+
+      .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .bottom-nav {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 70;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        padding: 8px;
+        border: 1px solid rgba(217, 209, 196, 0.86);
+        border-radius: 24px;
+        background: rgba(255, 253, 248, 0.92);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .bottom-nav .nav-item {
+        display: grid;
+        place-items: center;
+        min-height: 52px;
+        padding: 0;
+        font-size: 11px;
+        gap: 4px;
+      }
+
+      .bottom-nav .nav-item svg {
+        width: 20px;
+        height: 20px;
+      }
+    }
+
+    @media (max-width: 840px) {
+      .grid,
+      .scan-panel,
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .span-3,
+      .span-4,
+      .span-5,
+      .span-6,
+      .span-7,
+      .span-8,
+      .span-9,
+      .span-12,
+      .form-grid .full-row {
+        grid-column: 1;
+      }
+
+      .metric-row,
+      .proof-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .auth-screen {
+        width: 100%;
+        padding: 0;
+      }
+
+      .auth-brand,
+      .auth-panel {
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+
+      .auth-brand {
+        padding: 24px;
+      }
+
+      .auth-proof {
+        grid-template-columns: 1fr;
+      }
+
+      .auth-panel {
+        padding: 18px;
+      }
+
+      .role-select {
+        grid-template-columns: 1fr;
+      }
+
+      .top-actions {
+        width: 100%;
+        flex-wrap: wrap;
+      }
+
+      .top-actions .button,
+      .top-actions .pill {
+        flex: 1 1 auto;
+      }
+
+      .card {
+        padding: 16px;
+        border-radius: 20px;
+      }
+
+      .quick-row {
+        grid-template-columns: 38px minmax(0, 1fr);
+      }
+
+      .quick-row .pill,
+      .quick-row .button {
+        grid-column: 1 / -1;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="auth-screen" id="authScreen">
+      <aside class="auth-brand">
+        <div class="brand-row">
+          <span class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M6.5 12.5l3.2 3.2 7.8-8.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+              <path d="M5.3 8c4.1-3.4 9.3-3.4 13.4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+              <path d="M8.2 10.8c2.3-1.7 5.3-1.7 7.6 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            </svg>
+          </span>
+          <span class="brand-title">
+            <span>SA Proximity</span>
+            <span>Smart Attendance</span>
+          </span>
+        </div>
+
+        <div class="auth-copy">
+          <div class="eyebrow"><span class="dot"></span> Hosted and room-aware</div>
+          <h1>Presence-verified attendance for real classrooms.</h1>
+          <p>
+            A production-style interface for acoustic proof, lecturer BLE broadcast,
+            CP27 room beacons, device binding, duplicate prevention, and session reports.
+          </p>
+          <div class="auth-proof">
+            <span>BLE + CP27 proximity</span>
+            <span>Acoustic close-range proof</span>
+            <span>Render hosted backend</span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="auth-panel">
+        <div class="auth-card">
+          <div class="segment" role="tablist" aria-label="Authentication mode">
+            <button class="active" type="button" data-auth-tab="login">Login</button>
+            <button type="button" data-auth-tab="register">Register</button>
+          </div>
+
+          <form class="auth-form active" id="loginForm">
+            <h2>Welcome back</h2>
+            <p>Sign in as lecturer or student. The app connects to the hosted backend automatically.</p>
+            <div class="field-grid">
+              <label>
+                Identifier
+                <input value="21/52HP071" aria-label="Identifier" />
+                <span class="hint">Student matric number or lecturer username.</span>
+              </label>
+              <label>
+                Password
+                <input type="password" value="password" aria-label="Password" />
+              </label>
+            </div>
+            <button class="button primary full" type="submit">Continue to portal</button>
+          </form>
+
+          <form class="auth-form" id="registerForm">
+            <h2>Create account</h2>
+            <p>Registration captures identity, role, and prepares the account for device binding.</p>
+            <div class="field-grid">
+              <label>
+                Full name
+                <input value="Joshua Olugbemi Iyanuoluwa" aria-label="Full name" />
+              </label>
+              <div class="role-select" aria-label="Role selection">
+                <button class="role-option active" type="button">Student</button>
+                <button class="role-option" type="button">Lecturer</button>
+              </div>
+              <label>
+                Matric number / username
+                <input value="21/52HP071" aria-label="Matric number or username" />
+              </label>
+              <label>
+                Password
+                <input type="password" value="password" aria-label="Registration password" />
+              </label>
+            </div>
+            <button class="button primary full" type="submit">Create account</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="app-shell hide" id="portalShell">
+      <aside class="sidebar">
+        <div class="sidebar-inner">
+          <div class="app-brand">
+            <span class="mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M6.5 12.5l3.2 3.2 7.8-8.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <path d="M5.3 8c4.1-3.4 9.3-3.4 13.4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+              </svg>
+            </span>
+            <span class="brand-title">
+              <span>SA Proximity</span>
+              <span>Hosted attendance</span>
+            </span>
+          </div>
+
+          <div class="role-switcher">
+            <button class="active" type="button" data-role="student">Student</button>
+            <button type="button" data-role="lecturer">Lecturer</button>
+          </div>
+
+          <nav class="nav-list" id="sidebarNav" aria-label="Portal navigation"></nav>
+
+          <div class="sidebar-footer">
+            <div class="mini-status"><span class="dot"></span> sa-acoustic-ble.onrender.com</div>
+            <p>Hosted backend connected. Advanced URL change remains hidden in profile settings.</p>
+          </div>
+        </div>
+      </aside>
+
+      <div>
+        <header class="mobile-bar">
+          <div class="app-brand">
+            <span class="mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M6.5 12.5l3.2 3.2 7.8-8.1" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <path d="M5.3 8c4.1-3.4 9.3-3.4 13.4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+              </svg>
+            </span>
+            <span class="brand-title">
+              <span>SA Proximity</span>
+              <span id="mobileRoleLabel">Student portal</span>
+            </span>
+          </div>
+          <button class="button secondary" type="button" id="mobileRoleToggle">Switch</button>
+        </header>
+        <div class="mobile-menu" id="mobileMenu"></div>
+
+        <main class="main">
+          <div class="topbar">
+            <div class="page-title">
+              <h1 id="pageHeading">Student Portal</h1>
+              <p id="pageLead">Capture a verified classroom signal, submit once, and track attendance cleanly.</p>
+            </div>
+            <div class="top-actions">
+              <span class="pill success"><span class="dot"></span> API live</span>
+              <button class="button secondary" type="button" id="logoutButton">Logout</button>
+            </div>
+          </div>
+
+          <div id="views">
+            <section class="view active" data-view="student-dashboard">
+              <div class="grid">
+                <article class="card hero-card span-8">
+                  <h2>Good morning, Joshua.</h2>
+                  <p class="card-subtitle">
+                    You have one open attendance window. Scan the room signal using BLE,
+                    CP27 beacon, or acoustic proof, then submit your verified proof once.
+                  </p>
+                  <div class="metric-row">
+                    <div class="metric-box">
+                      <strong>1</strong>
+                      <span>Open session</span>
+                    </div>
+                    <div class="metric-box">
+                      <strong>DEV-8F2A19C4</strong>
+                      <span>Trusted device</span>
+                    </div>
+                    <div class="metric-box">
+                      <strong>BLE</strong>
+                      <span>Main proof path</span>
+                    </div>
+                  </div>
+                </article>
+                <article class="card span-4 stat-card">
+                  <span class="stat-label">Latest proof</span>
+                  <div>
+                    <div class="stat-value">CP27</div>
+                    <p class="stat-note">Room beacon detected at -56 dBm in Lecture Theatre A.</p>
+                  </div>
+                  <button class="button primary" type="button" data-nav-target="student-scan">Start scan</button>
+                </article>
+                <article class="card span-12">
+                  <h3>Today’s sessions</h3>
+                  <p class="card-subtitle">Only sessions opened by the lecturer are available for attendance submission.</p>
+                  <div class="quick-list">
+                    <div class="quick-row">
+                      <div class="quick-icon">T</div>
+                      <div>
+                        <h4>TCS 412 - Wireless Communication Systems</h4>
+                        <p>Lecturer: Dr. Adewale | Room: Lecture Theatre A | Beacon: CP27-A1</p>
+                      </div>
+                      <span class="pill success">Open</span>
+                    </div>
+                    <div class="quick-row">
+                      <div class="quick-icon">N</div>
+                      <div>
+                        <h4>TCS 406 - Network Planning</h4>
+                        <p>Lecturer: Engr. Bello | Room: Lab 3</p>
+                      </div>
+                      <span class="pill">Closed</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="view" data-view="student-scan">
+              <div class="scan-panel">
+                <article class="card">
+                  <h3>Room signal scan</h3>
+                  <p class="card-subtitle">One scan checks lecturer BLE, registered CP27 beacon, acoustic proof, and fallback traces.</p>
+                  <div class="scan-orb" id="scanOrb">
+                    <div class="scan-core">
+                      <div>
+                        READY
+                        <span>Tap scan</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button class="button primary full" type="button" id="scanButton">Scan classroom signal</button>
+                </article>
+
+                <article class="card">
+                  <h3>Proof construction</h3>
+                  <p class="card-subtitle">The app submits the strongest valid evidence to the hosted backend.</p>
+                  <div class="proof-grid">
+                    <div class="proof-card">
+                      <div class="top"><strong>Lecturer BLE</strong><span class="pill">Seen</span></div>
+                      <div class="rssi">-72 dBm</div>
+                      <p>Phone broadcast detected. Secondary source if beacon is weaker.</p>
+                      <div class="progress"><span style="--w: 62%;"></span></div>
+                    </div>
+                    <div class="proof-card">
+                      <div class="top"><strong>CP27 beacon</strong><span class="pill success">Selected</span></div>
+                      <div class="rssi">-56 dBm</div>
+                      <p>Registered beacon matched to Lecture Theatre A.</p>
+                      <div class="progress"><span style="--w: 84%;"></span></div>
+                    </div>
+                    <div class="proof-card">
+                      <div class="top"><strong>Acoustic</strong><span class="pill warn">Short range</span></div>
+                      <div class="rssi">Captured</div>
+                      <p>Close-range acoustic token available in low-noise settings.</p>
+                      <div class="progress"><span style="--w: 48%;"></span></div>
+                    </div>
+                    <div class="proof-card">
+                      <div class="top"><strong>Device trust</strong><span class="pill success">Bound</span></div>
+                      <div class="rssi">DEV-8F2A</div>
+                      <p>Current phone matches the student’s registered device.</p>
+                      <div class="progress"><span style="--w: 100%;"></span></div>
+                    </div>
+                  </div>
+                  <div style="margin-top: 16px;">
+                    <button class="button primary" type="button" id="submitProofButton">Submit attendance proof</button>
+                    <button class="button secondary" type="button">View technical details</button>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="view" data-view="student-history">
+              <div class="grid">
+                <article class="card span-12">
+                  <h3>Attendance history</h3>
+                  <p class="card-subtitle">Submitted reports are tied to session, mode of scan, and trusted device.</p>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Course</th>
+                          <th>Date</th>
+                          <th>Room</th>
+                          <th>Mode</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>TCS 412</td>
+                          <td>09 Jun 2026</td>
+                          <td>Lecture Theatre A</td>
+                          <td>BLE Beacon + Lecturer BLE</td>
+                          <td><span class="pill success">Submitted</span></td>
+                        </tr>
+                        <tr>
+                          <td>TCS 406</td>
+                          <td>03 Jun 2026</td>
+                          <td>Lab 3</td>
+                          <td>Acoustic</td>
+                          <td><span class="pill success">Submitted</span></td>
+                        </tr>
+                        <tr>
+                          <td>TCS 401</td>
+                          <td>28 May 2026</td>
+                          <td>Room 12</td>
+                          <td>BLE</td>
+                          <td><span class="pill success">Submitted</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="view" data-view="lecturer-dashboard">
+              <div class="grid">
+                <article class="card hero-card span-8">
+                  <h2>Lecturer command centre.</h2>
+                  <p class="card-subtitle">
+                    Create a session, choose the room beacon, open attendance, broadcast BLE/acoustic signals,
+                    and export clean validation reports.
+                  </p>
+                  <div class="metric-row">
+                    <div class="metric-box">
+                      <strong>42</strong>
+                      <span>Expected students</span>
+                    </div>
+                    <div class="metric-box">
+                      <strong>38</strong>
+                      <span>Verified submissions</span>
+                    </div>
+                    <div class="metric-box">
+                      <strong>CP27-A1</strong>
+                      <span>Selected beacon</span>
+                    </div>
+                  </div>
+                </article>
+                <article class="card span-4 stat-card">
+                  <span class="stat-label">Current session</span>
+                  <div>
+                    <div class="stat-value">Open</div>
+                    <p class="stat-note">TCS 412 attendance window is accepting submissions.</p>
+                  </div>
+                  <button class="button primary" type="button" data-nav-target="lecturer-broadcast">Broadcast controls</button>
+                </article>
+                <article class="card span-6">
+                  <h3>Session setup</h3>
+                  <div class="form-grid">
+                    <label>
+                      Course code
+                      <input value="TCS 412" />
+                    </label>
+                    <label>
+                      Course title
+                      <input value="Wireless Communication Systems" />
+                    </label>
+                    <label>
+                      Room
+                      <select>
+                        <option>Lecture Theatre A</option>
+                        <option>Lab 3</option>
+                        <option>Theatre B</option>
+                      </select>
+                    </label>
+                    <label>
+                      Room beacon
+                      <select>
+                        <option>CP27-A1 | UUID 5:6</option>
+                        <option>CP27-L3 | Eddystone UID</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button class="button primary full" type="button">Create session</button>
+                </article>
+                <article class="card span-6">
+                  <h3>Live session management</h3>
+                  <div class="quick-list">
+                    <div class="quick-row">
+                      <div class="quick-icon">A</div>
+                      <div>
+                        <h4>Attendance window</h4>
+                        <p>Open now. Students may submit once.</p>
+                      </div>
+                      <button class="button danger" type="button">Close</button>
+                    </div>
+                    <div class="quick-row">
+                      <div class="quick-icon">D</div>
+                      <div>
+                        <h4>Delete session</h4>
+                        <p>Permanently remove incorrect sessions.</p>
+                      </div>
+                      <button class="button secondary" type="button">Delete</button>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="view" data-view="lecturer-broadcast">
+              <div class="grid">
+                <article class="card span-5">
+                  <h3>Broadcast controls</h3>
+                  <p class="card-subtitle">Lecturer phone can broadcast BLE and acoustic signal while the CP27 beacon provides room-wide support.</p>
+                  <div class="quick-list">
+                    <div class="quick-row">
+                      <div class="quick-icon">B</div>
+                      <div>
+                        <h4>Lecturer BLE</h4>
+                        <p>Short-lived session nonce from lecturer phone.</p>
+                      </div>
+                      <span class="pill success">Live</span>
+                    </div>
+                    <div class="quick-row">
+                      <div class="quick-icon">C</div>
+                      <div>
+                        <h4>CP27 beacon</h4>
+                        <p>Static room identity resolved by backend.</p>
+                      </div>
+                      <span class="pill success">Matched</span>
+                    </div>
+                    <div class="quick-row">
+                      <div class="quick-icon">A</div>
+                      <div>
+                        <h4>Acoustic</h4>
+                        <p>Close-range speaker token for additional proof.</p>
+                      </div>
+                      <span class="pill warn">Optional</span>
+                    </div>
+                  </div>
+                </article>
+                <article class="card span-7">
+                  <h3>Signal map</h3>
+                  <p class="card-subtitle">Room-aware beacon matching prevents adjacent classroom conflicts.</p>
+                  <div class="proof-grid">
+                    <div class="proof-card">
+                      <div class="top"><strong>Lecture Theatre A</strong><span class="pill success">Active</span></div>
+                      <p>Beacon CP27-A1, minimum RSSI -90 dBm, attendance session TCS 412.</p>
+                      <div class="progress"><span style="--w: 88%;"></span></div>
+                    </div>
+                    <div class="proof-card">
+                      <div class="top"><strong>Lab 3</strong><span class="pill">Idle</span></div>
+                      <p>Beacon CP27-L3 cannot validate Theatre A sessions.</p>
+                      <div class="progress"><span style="--w: 42%;"></span></div>
+                    </div>
+                    <div class="proof-card">
+                      <div class="top"><strong>Theatre B</strong><span class="pill">Idle</span></div>
+                      <p>Separate room identity avoids simultaneous-session conflict.</p>
+                      <div class="progress"><span style="--w: 34%;"></span></div>
+                    </div>
+                    <div class="proof-card">
+                      <div class="top"><strong>Hosted backend</strong><span class="pill success">Online</span></div>
+                      <p>Django resolves beacon proof to the correct open room session.</p>
+                      <div class="progress"><span style="--w: 100%;"></span></div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="view" data-view="lecturer-reports">
+              <div class="grid">
+                <article class="card span-12">
+                  <div style="display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap;">
+                    <div>
+                      <h3>Validation report</h3>
+                      <p class="card-subtitle">Filtered by selected session. Shows students, device ID, and mode of scan.</p>
+                    </div>
+                    <button class="button primary" type="button">Download CSV</button>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>SN</th>
+                          <th>Student</th>
+                          <th>Matric No.</th>
+                          <th>Device ID</th>
+                          <th>Mode of scan</th>
+                          <th>Submitted</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>01</td>
+                          <td><span class="avatar-cell"><span class="avatar">JO</span>Joshua Olugbemi</span></td>
+                          <td>21/52HP071</td>
+                          <td>DEV-8F2A19C4</td>
+                          <td>BLE Beacon + BLE</td>
+                          <td>09:47 AM</td>
+                        </tr>
+                        <tr>
+                          <td>02</td>
+                          <td><span class="avatar-cell"><span class="avatar">AO</span>Amina Olatunji</span></td>
+                          <td>21/52HP088</td>
+                          <td>DEV-4D7A0031</td>
+                          <td>CP27 Beacon</td>
+                          <td>09:48 AM</td>
+                        </tr>
+                        <tr>
+                          <td>03</td>
+                          <td><span class="avatar-cell"><span class="avatar">MT</span>Michael Tade</span></td>
+                          <td>21/52HP092</td>
+                          <td>DEV-92C110AF</td>
+                          <td>Acoustic</td>
+                          <td>09:49 AM</td>
+                        </tr>
+                        <tr>
+                          <td>04</td>
+                          <td><span class="avatar-cell"><span class="avatar">FB</span>Fatima Bello</span></td>
+                          <td>21/52HP103</td>
+                          <td>DEV-B32A89EA</td>
+                          <td>Lecturer BLE</td>
+                          <td>09:50 AM</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="view" data-view="profile">
+              <div class="grid">
+                <article class="card hero-card span-5">
+                  <h2 id="profileName">Joshua Olugbemi Iyanuoluwa</h2>
+                  <p class="card-subtitle" id="profileRole">Student account connected to a trusted device.</p>
+                  <div class="metric-row">
+                    <div class="metric-box">
+                      <strong>DEV</strong>
+                      <span>Bound device</span>
+                    </div>
+                    <div class="metric-box">
+                      <strong>API</strong>
+                      <span>Hosted</span>
+                    </div>
+                    <div class="metric-box">
+                      <strong>OK</strong>
+                      <span>Trust state</span>
+                    </div>
+                  </div>
+                </article>
+                <article class="card span-7">
+                  <h3>Profile details</h3>
+                  <div class="receipt" style="margin-top: 16px;">
+                    <div class="receipt-row"><span>Full name</span><strong id="receiptName">Joshua Olugbemi Iyanuoluwa</strong></div>
+                    <div class="receipt-row"><span>Primary ID</span><strong id="receiptId">21/52HP071</strong></div>
+                    <div class="receipt-row"><span>Readable device</span><strong>DEV-8F2A19C4</strong></div>
+                    <div class="receipt-row"><span>Backend</span><strong>https://sa-acoustic-ble.onrender.com</strong></div>
+                  </div>
+                  <details style="margin-top: 14px;">
+                    <summary style="font-weight: 900; cursor: pointer;">Advanced connection settings</summary>
+                    <div class="form-grid" style="margin-top: 12px;">
+                      <label class="full-row">
+                        Backend URL
+                        <input value="https://sa-acoustic-ble.onrender.com" />
+                        <span class="hint">Only change this if you need to switch to a local fallback server.</span>
+                      </label>
+                    </div>
+                  </details>
+                </article>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <nav class="bottom-nav hide" id="bottomNav" aria-label="Mobile bottom navigation"></nav>
+    <div class="toast" id="toast">Attendance proof submitted successfully.</div>
+  </div>
+
+  <script>
+    const icons = {
+      dashboard: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 13h7V4H4v9zm9 7h7V4h-7v16zM4 20h7v-5H4v5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
+      scan: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0116 0M7.5 12a4.5 4.5 0 019 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="15" r="2" fill="currentColor"/></svg>',
+      history: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 5h16M4 12h16M4 19h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+      profile: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 12a4 4 0 100-8 4 4 0 000 8zm7 8a7 7 0 00-14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+      broadcast: '<svg viewBox="0 0 24 24" fill="none"><path d="M7 12a5 5 0 0110 0M4 12a8 8 0 0116 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 15v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+      report: '<svg viewBox="0 0 24 24" fill="none"><path d="M7 4h10l3 3v13H7V4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 12h7M10 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
+    };
+
+    const navConfig = {
+      student: [
+        { label: "Home", view: "student-dashboard", icon: icons.dashboard },
+        { label: "Scan", view: "student-scan", icon: icons.scan },
+        { label: "History", view: "student-history", icon: icons.history },
+        { label: "Profile", view: "profile", icon: icons.profile }
+      ],
+      lecturer: [
+        { label: "Home", view: "lecturer-dashboard", icon: icons.dashboard },
+        { label: "Broadcast", view: "lecturer-broadcast", icon: icons.broadcast },
+        { label: "Reports", view: "lecturer-reports", icon: icons.report },
+        { label: "Profile", view: "profile", icon: icons.profile }
+      ]
+    };
+
+    const pageCopy = {
+      "student-dashboard": ["Student Portal", "Capture a verified classroom signal, submit once, and track attendance cleanly."],
+      "student-scan": ["Scan Attendance", "Collect BLE, CP27 beacon, acoustic, and device-trust evidence before submission."],
+      "student-history": ["Attendance History", "Review submitted proof records and attendance status across sessions."],
+      "lecturer-dashboard": ["Lecturer Portal", "Create sessions, select room beacons, control attendance windows, and monitor progress."],
+      "lecturer-broadcast": ["Broadcast Centre", "Operate lecturer BLE, acoustic signal, and room beacon verification together."],
+      "lecturer-reports": ["Validation Reports", "Export session-specific attendance records with student identity and scan mode."],
+      "profile": ["Profile", "Manage identity, trusted device information, and advanced connection settings."]
+    };
+
+    let activeRole = "student";
+    let activeView = "student-dashboard";
+
+    const authScreen = document.getElementById("authScreen");
+    const portalShell = document.getElementById("portalShell");
+    const sidebarNav = document.getElementById("sidebarNav");
+    const mobileMenu = document.getElementById("mobileMenu");
+    const bottomNav = document.getElementById("bottomNav");
+    const pageHeading = document.getElementById("pageHeading");
+    const pageLead = document.getElementById("pageLead");
+    const toast = document.getElementById("toast");
+
+    document.querySelectorAll("[data-auth-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-auth-tab]").forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll(".auth-form").forEach((form) => form.classList.remove("active"));
+        document.getElementById(`${button.dataset.authTab}Form`).classList.add("active");
+      });
+    });
+
+    document.querySelectorAll(".role-option").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".role-option").forEach((item) => item.classList.toggle("active", item === button));
+      });
+    });
+
+    document.querySelectorAll(".auth-form").forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        authScreen.classList.add("hide");
+        portalShell.classList.remove("hide");
+        bottomNav.classList.remove("hide");
+        renderNav();
+        showView(activeView);
+      });
+    });
+
+    document.querySelectorAll("[data-role]").forEach((button) => {
+      button.addEventListener("click", () => setRole(button.dataset.role));
+    });
+
+    document.getElementById("mobileRoleToggle").addEventListener("click", () => {
+      setRole(activeRole === "student" ? "lecturer" : "student");
+    });
+
+    document.getElementById("logoutButton").addEventListener("click", () => {
+      portalShell.classList.add("hide");
+      bottomNav.classList.add("hide");
+      authScreen.classList.remove("hide");
+    });
+
+    document.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-nav-target]");
+      if (target) {
+        showView(target.dataset.navTarget);
+      }
+    });
+
+    document.getElementById("scanButton").addEventListener("click", () => {
+      const core = document.querySelector(".scan-core div");
+      core.innerHTML = "CAPTURED<span>CP27 + BLE</span>";
+      showToast("Reliable classroom signal captured.");
+    });
+
+    document.getElementById("submitProofButton").addEventListener("click", () => {
+      showToast("Attendance proof submitted successfully.");
+    });
+
+    function setRole(role) {
+      activeRole = role;
+      activeView = role === "student" ? "student-dashboard" : "lecturer-dashboard";
+      document.querySelectorAll("[data-role]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.role === role);
+      });
+      document.getElementById("mobileRoleLabel").textContent = role === "student" ? "Student portal" : "Lecturer portal";
+      document.getElementById("profileName").textContent = role === "student" ? "Joshua Olugbemi Iyanuoluwa" : "Dr. Adewale";
+      document.getElementById("profileRole").textContent = role === "student"
+        ? "Student account connected to a trusted device."
+        : "Lecturer account authorized for session creation and report export.";
+      document.getElementById("receiptName").textContent = role === "student" ? "Joshua Olugbemi Iyanuoluwa" : "Dr. Adewale";
+      document.getElementById("receiptId").textContent = role === "student" ? "21/52HP071" : "adewale.lecturer";
+      renderNav();
+      showView(activeView);
+    }
+
+    function renderNav() {
+      const items = navConfig[activeRole];
+      const markup = items.map((item) => navButton(item)).join("");
+      sidebarNav.innerHTML = markup;
+      mobileMenu.innerHTML = markup;
+      bottomNav.innerHTML = markup;
+      document.querySelectorAll(".nav-item").forEach((button) => {
+        button.addEventListener("click", () => showView(button.dataset.view));
+      });
+      updateNavState();
+    }
+
+    function navButton(item) {
+      return `<button class="nav-item" type="button" data-view="${item.view}">${item.icon}<span>${item.label}</span></button>`;
+    }
+
+    function showView(viewName) {
+      activeView = viewName;
+      document.querySelectorAll(".view").forEach((view) => {
+        view.classList.toggle("active", view.dataset.view === viewName);
+      });
+      const [heading, lead] = pageCopy[viewName] || pageCopy.profile;
+      pageHeading.textContent = heading;
+      pageLead.textContent = lead;
+      updateNavState();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function updateNavState() {
+      document.querySelectorAll(".nav-item").forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === activeView);
+      });
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+    }
+  </script>
+</body>
+</html>

@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiConfig {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://sas-z5iu.onrender.com',
+    defaultValue: 'https://sa-acoustic-ble.onrender.com',
   );
 
   static const _keyRuntimeBaseUrl = 'runtime_api_base_url';

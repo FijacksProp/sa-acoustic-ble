@@ -137,14 +137,42 @@ _ChipTone _proofScanModeTone(String mode) {
   return _ChipTone.success;
 }
 
+class _AppPalette {
+  static const ink = Color(0xFF17242C);
+  static const muted = Color(0xFF69767F);
+  static const canvas = Color(0xFFF7F4ED);
+  static const surface = Color(0xFFFFFCF7);
+  static const surfaceAlt = Color(0xFFF0EAE0);
+  static const line = Color(0xFFD9D0C3);
+  static const navy = Color(0xFF0A3246);
+  static const teal = Color(0xFF0B746C);
+  static const tealSoft = Color(0xFFE2F1EC);
+  static const amber = Color(0xFFB47A20);
+  static const amberSoft = Color(0xFFF4E8D0);
+  static const red = Color(0xFFB44535);
+  static const redSoft = Color(0xFFF5DEDA);
+  static const green = Color(0xFF237A52);
+  static const greenSoft = Color(0xFFE1F1E8);
+}
+
+class _AppRadii {
+  static const small = 12.0;
+  static const medium = 16.0;
+  static const large = 22.0;
+  static const xlarge = 28.0;
+}
+
 class SaAcousticBleApp extends StatelessWidget {
   const SaAcousticBleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF0B5D7A),
+      seedColor: _AppPalette.teal,
       brightness: Brightness.light,
+    ).copyWith(
+      primary: _AppPalette.teal,
+      surface: _AppPalette.surface,
     );
     return MaterialApp(
       title: 'SA Acoustic BLE',
@@ -152,16 +180,23 @@ class SaAcousticBleApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: colorScheme,
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF4F7FB),
+        scaffoldBackgroundColor: _AppPalette.canvas,
+        fontFamily: 'Roboto',
+        textTheme: ThemeData.light().textTheme.apply(
+              bodyColor: _AppPalette.ink,
+              displayColor: _AppPalette.ink,
+              fontFamily: 'Roboto',
+            ),
         dividerTheme: DividerThemeData(
-          color: colorScheme.outlineVariant.withOpacity(0.7),
+          color: _AppPalette.line.withOpacity(0.75),
           thickness: 1,
           space: 1,
         ),
         snackBarTheme: SnackBarThemeData(
           behavior: SnackBarBehavior.floating,
+          backgroundColor: _AppPalette.navy,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(_AppRadii.medium),
           ),
           contentTextStyle: const TextStyle(
             color: Colors.white,
@@ -169,67 +204,80 @@ class SaAcousticBleApp extends StatelessWidget {
           ),
         ),
         appBarTheme: AppBarTheme(
-          backgroundColor: colorScheme.surface,
-          foregroundColor: colorScheme.onSurface,
+          backgroundColor: _AppPalette.canvas,
+          foregroundColor: _AppPalette.ink,
           elevation: 0,
           scrolledUnderElevation: 0,
           centerTitle: false,
-          titleTextStyle: TextStyle(
-            color: colorScheme.onSurface,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.2,
+          titleTextStyle: const TextStyle(
+            color: _AppPalette.ink,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.35,
           ),
         ),
         cardTheme: CardThemeData(
           elevation: 0,
-          color: Colors.white,
+          color: _AppPalette.surface,
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: BorderSide(color: colorScheme.outlineVariant.withOpacity(0.55)),
+            borderRadius: BorderRadius.circular(_AppRadii.large),
+            side: const BorderSide(color: _AppPalette.line),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          fillColor: _AppPalette.surface,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+          labelStyle: const TextStyle(
+            color: _AppPalette.muted,
+            fontWeight: FontWeight.w600,
+          ),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(_AppRadii.medium),
+            borderSide: const BorderSide(color: _AppPalette.line),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(_AppRadii.medium),
+            borderSide: const BorderSide(color: _AppPalette.line),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
+            borderRadius: BorderRadius.circular(_AppRadii.medium),
+            borderSide: const BorderSide(color: _AppPalette.teal, width: 1.4),
           ),
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
+            backgroundColor: _AppPalette.navy,
+            foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(_AppRadii.medium),
             ),
+            textStyle: const TextStyle(fontWeight: FontWeight.w800),
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
+            foregroundColor: _AppPalette.ink,
+            side: const BorderSide(color: _AppPalette.line),
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(_AppRadii.medium),
             ),
+            textStyle: const TextStyle(fontWeight: FontWeight.w800),
           ),
         ),
         navigationBarTheme: NavigationBarThemeData(
-          height: 60,
-          backgroundColor: Colors.white,
-          indicatorColor: colorScheme.primaryContainer,
+          height: 64,
+          backgroundColor: _AppPalette.surface,
+          indicatorColor: _AppPalette.tealSoft,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           iconTheme: WidgetStateProperty.resolveWith(
             (states) => IconThemeData(
+              color: states.contains(WidgetState.selected)
+                  ? _AppPalette.teal
+                  : _AppPalette.muted,
               size: states.contains(WidgetState.selected) ? 24 : 22,
             ),
           ),
@@ -429,12 +477,21 @@ class _AuthScreenState extends State<AuthScreen> {
             child: Container(
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
+                color: _AppPalette.surface,
+                borderRadius: BorderRadius.circular(_AppRadii.large),
+                border: Border.all(color: _AppPalette.line),
               ),
               child: const TabBar(
+                labelColor: _AppPalette.ink,
+                unselectedLabelColor: _AppPalette.muted,
+                labelStyle: TextStyle(fontWeight: FontWeight.w800),
+                unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w700),
                 indicatorSize: TabBarIndicatorSize.tab,
                 dividerColor: Colors.transparent,
+                indicator: BoxDecoration(
+                  color: _AppPalette.tealSoft,
+                  borderRadius: BorderRadius.all(Radius.circular(18)),
+                ),
                 tabs: [
                   Tab(text: 'Login'),
                   Tab(text: 'Register'),
@@ -605,14 +662,17 @@ class _StudentShellState extends State<StudentShell> {
       appBar: AppBar(
         title: const Text('Student Portal'),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(28),
+          preferredSize: const Size.fromHeight(30),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 'Capture a verified room signal, submit once, and track your attendance cleanly.',
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _AppPalette.muted,
+                      height: 1.25,
+                    ),
               ),
             ),
           ),
@@ -678,14 +738,17 @@ class _LecturerShellState extends State<LecturerShell> {
       appBar: AppBar(
         title: const Text('Lecturer Portal'),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(28),
+          preferredSize: const Size.fromHeight(30),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 'Create live sessions, broadcast proximity signals, and export attendance records.',
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _AppPalette.muted,
+                      height: 1.25,
+                    ),
               ),
             ),
           ),
@@ -1669,29 +1732,22 @@ class _StudentAttendanceHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     final accent = switch (tone) {
-      _ChipTone.success => Colors.green.shade500,
-      _ChipTone.danger => Colors.orange.shade600,
-      _ChipTone.neutral => colors.primary,
+      _ChipTone.success => _AppPalette.green,
+      _ChipTone.danger => _AppPalette.amber,
+      _ChipTone.neutral => _AppPalette.teal,
     };
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF0B1B3A),
-            Color.lerp(const Color(0xFF0B1B3A), accent, 0.32)!,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
+        color: _AppPalette.surface,
+        border: Border.all(color: _AppPalette.line),
+        borderRadius: BorderRadius.circular(_AppRadii.xlarge),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0B1B3A).withOpacity(0.2),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
+            color: _AppPalette.ink.withOpacity(0.06),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -1704,11 +1760,11 @@ class _StudentAttendanceHero extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(13),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                  color: accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: accent.withOpacity(0.16)),
                 ),
-                child: Icon(icon, color: Colors.white, size: 30),
+                child: Icon(icon, color: accent, size: 28),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1718,7 +1774,7 @@ class _StudentAttendanceHero extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: Colors.white,
+                            color: _AppPalette.ink,
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.4,
                           ),
@@ -1727,7 +1783,7 @@ class _StudentAttendanceHero extends StatelessWidget {
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.white.withOpacity(0.84),
+                            color: _AppPalette.muted,
                             height: 1.45,
                           ),
                     ),
@@ -1741,9 +1797,13 @@ class _StudentAttendanceHero extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _GlassPill(icon: Icons.badge_outlined, label: identity),
-              _GlassPill(icon: Icons.phone_android_outlined, label: device),
-              const _GlassPill(icon: Icons.verified_user_outlined, label: 'One submission only'),
+              _GlassPill(icon: Icons.badge_outlined, label: identity, color: accent),
+              _GlassPill(icon: Icons.phone_android_outlined, label: device, color: accent),
+              _GlassPill(
+                icon: Icons.verified_user_outlined,
+                label: 'One submission only',
+                color: accent,
+              ),
             ],
           ),
         ],
@@ -1753,29 +1813,34 @@ class _StudentAttendanceHero extends StatelessWidget {
 }
 
 class _GlassPill extends StatelessWidget {
-  const _GlassPill({required this.icon, required this.label});
+  const _GlassPill({
+    required this.icon,
+    required this.label,
+    this.color = _AppPalette.teal,
+  });
 
   final IconData icon;
   final String label;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.12),
+        color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.16)),
+        border: Border.all(color: color.withOpacity(0.14)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.white, size: 16),
+          Icon(icon, color: color, size: 16),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: color,
               fontWeight: FontWeight.w700,
               fontSize: 12,
             ),
@@ -2847,25 +2912,18 @@ class _LecturerCommandHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final accent = attendanceOpen ? Colors.green.shade500 : colors.primary;
+    final accent = attendanceOpen ? _AppPalette.green : _AppPalette.teal;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFF071E2E),
-            Color.lerp(const Color(0xFF071E2E), accent, 0.34)!,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
+        color: _AppPalette.surface,
+        border: Border.all(color: _AppPalette.line),
+        borderRadius: BorderRadius.circular(_AppRadii.xlarge),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF071E2E).withOpacity(0.2),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
+            color: _AppPalette.ink.withOpacity(0.06),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -2878,16 +2936,16 @@ class _LecturerCommandHero extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(13),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                  color: accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: accent.withOpacity(0.16)),
                 ),
                 child: Icon(
                   attendanceOpen
                       ? Icons.wifi_tethering_outlined
                       : Icons.dashboard_customize_outlined,
-                  color: Colors.white,
-                  size: 30,
+                  color: accent,
+                  size: 28,
                 ),
               ),
               const SizedBox(width: 14),
@@ -2898,7 +2956,7 @@ class _LecturerCommandHero extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            color: Colors.white,
+                            color: _AppPalette.ink,
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.4,
                           ),
@@ -2907,7 +2965,7 @@ class _LecturerCommandHero extends StatelessWidget {
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.white.withOpacity(0.84),
+                            color: _AppPalette.muted,
                             height: 1.45,
                           ),
                     ),
@@ -2924,14 +2982,17 @@ class _LecturerCommandHero extends StatelessWidget {
               _GlassPill(
                 icon: Icons.sensors_outlined,
                 label: isBroadcasting ? 'Broadcast running' : 'Broadcast idle',
+                color: accent,
               ),
               _GlassPill(
                 icon: Icons.lock_open_outlined,
                 label: attendanceOpen ? 'Attendance open' : 'Attendance closed',
+                color: accent,
               ),
-              const _GlassPill(
+              _GlassPill(
                 icon: Icons.room_preferences_outlined,
                 label: 'Room-aware beacon',
+                color: accent,
               ),
             ],
           ),
@@ -3782,20 +3843,12 @@ class _LecturerReportHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            colors.primaryContainer.withOpacity(0.92),
-            Colors.white,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: colors.outlineVariant.withOpacity(0.65)),
+        color: _AppPalette.surface,
+        borderRadius: BorderRadius.circular(_AppRadii.large),
+        border: Border.all(color: _AppPalette.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3806,10 +3859,10 @@ class _LecturerReportHero extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.72),
+                  color: _AppPalette.tealSoft,
                   borderRadius: BorderRadius.circular(17),
                 ),
-                child: Icon(Icons.analytics_outlined, color: colors.primary),
+                child: const Icon(Icons.analytics_outlined, color: _AppPalette.teal),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3827,7 +3880,7 @@ class _LecturerReportHero extends StatelessWidget {
                     Text(
                       'Clean attendance register for $sessionLabel.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: colors.onSurfaceVariant,
+                            color: _AppPalette.muted,
                           ),
                     ),
                   ],
@@ -4152,8 +4205,8 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
     final username = SessionStore.username?.trim() ?? '';
     final fullName = SessionStore.fullName?.trim() ?? '';
     final accent = widget.roleLabel == 'Lecturer'
-        ? Colors.indigo.shade700
-        : Colors.green.shade700;
+        ? _AppPalette.navy
+        : _AppPalette.teal;
     final roleIcon = widget.roleLabel == 'Lecturer' ? Icons.school : Icons.badge;
 
     return SingleChildScrollView(
@@ -4164,30 +4217,40 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: accent,
-              borderRadius: BorderRadius.circular(24),
+              color: _AppPalette.surface,
+              border: Border.all(color: _AppPalette.line),
+              borderRadius: BorderRadius.circular(_AppRadii.xlarge),
+              boxShadow: [
+                BoxShadow(
+                  color: _AppPalette.ink.withOpacity(0.05),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: Colors.white,
+                  backgroundColor: accent.withOpacity(0.1),
                   child: Icon(roleIcon, color: accent, size: 30),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   fullName.isEmpty ? widget.title : fullName,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
+                        color: _AppPalette.ink,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.4,
                       ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   widget.roleLabel,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white.withOpacity(0.92),
+                        color: _AppPalette.muted,
+                        fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 14),
@@ -4197,9 +4260,11 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
                   children: [
                     _ProfileChip(
                       label: identity.isEmpty ? 'No primary ID' : identity,
+                      color: accent,
                     ),
                     _ProfileChip(
                       label: SessionStore.displayDeviceId(_deviceId),
+                      color: accent,
                     ),
                   ],
                 ),
@@ -4570,54 +4635,54 @@ class _AuthPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
       children: [
         Container(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                const Color(0xFF073B4C),
-                colorScheme.primary,
-                const Color(0xFF118AB2),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(24),
+            color: _AppPalette.surface,
+            border: Border.all(color: _AppPalette.line),
+            borderRadius: BorderRadius.circular(_AppRadii.xlarge),
             boxShadow: [
               BoxShadow(
-                color: colorScheme.primary.withOpacity(0.16),
-                blurRadius: 28,
-                offset: const Offset(0, 14),
+                color: _AppPalette.ink.withOpacity(0.06),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: Colors.white,
-                child: Icon(icon, color: colorScheme.primary),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: _AppPalette.tealSoft,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(icon, color: _AppPalette.teal),
               ),
               const SizedBox(height: 16),
               Text(
                 title,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
+                      color: _AppPalette.ink,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
                     ),
               ),
               const SizedBox(height: 8),
               Text(
                 subtitle,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withOpacity(0.92),
+                      color: _AppPalette.muted,
+                      height: 1.45,
                     ),
               ),
+              const SizedBox(height: 14),
+              const _HostedConnectionPill(),
             ],
           ),
         ),
@@ -4629,6 +4694,49 @@ class _AuthPane extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _HostedConnectionPill extends StatelessWidget {
+  const _HostedConnectionPill();
+
+  @override
+  Widget build(BuildContext context) {
+    final uri = Uri.tryParse(ApiConfig.currentBaseUrl);
+    final host = uri?.host.isNotEmpty == true ? uri!.host : 'Hosted backend';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: _AppPalette.tealSoft,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _AppPalette.teal.withOpacity(0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: _AppPalette.green,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              host,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _AppPalette.teal,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -4646,22 +4754,12 @@ class _ScreenHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            colorScheme.primaryContainer.withOpacity(0.95),
-            Colors.white,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withOpacity(0.65),
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: _AppPalette.surface,
+        border: Border.all(color: _AppPalette.line),
+        borderRadius: BorderRadius.circular(_AppRadii.large),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4669,17 +4767,10 @@ class _ScreenHeroCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(11),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: _AppPalette.tealSoft,
               borderRadius: BorderRadius.circular(15),
-              boxShadow: [
-                BoxShadow(
-                  color: colorScheme.primary.withOpacity(0.12),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-              ],
             ),
-            child: Icon(icon, color: colorScheme.primary),
+            child: Icon(icon, color: _AppPalette.teal),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -4694,7 +4785,10 @@ class _ScreenHeroCard extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 6),
-                Text(subtitle),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: _AppPalette.muted),
+                ),
               ],
             ),
           ),
@@ -4757,13 +4851,8 @@ class _MetricsStrip extends StatelessWidget {
                       vertical: 13,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .outlineVariant
-                            .withOpacity(0.65),
-                      ),
+                      color: _AppPalette.surface,
+                      border: Border.all(color: _AppPalette.line),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
@@ -4772,7 +4861,7 @@ class _MetricsStrip extends StatelessWidget {
                         Text(
                           item.label.toUpperCase(),
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Colors.grey.shade700,
+                                color: _AppPalette.muted,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 0.6,
                               ),
@@ -4810,21 +4899,30 @@ class _MetricItem {
 }
 
 class _ProfileChip extends StatelessWidget {
-  const _ProfileChip({required this.label});
+  const _ProfileChip({
+    required this.label,
+    this.color = _AppPalette.teal,
+  });
 
   final String label;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.16),
+        color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.14)),
       ),
       child: Text(
         label,
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -4839,7 +4937,7 @@ class _ProfileDetailCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             for (var i = 0; i < items.length; i++) ...[
@@ -4851,8 +4949,8 @@ class _ProfileDetailCard extends StatelessWidget {
                     child: Text(
                       items[i].label,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w700,
+                            color: _AppPalette.muted,
+                            fontWeight: FontWeight.w800,
                           ),
                     ),
                   ),
@@ -4863,7 +4961,8 @@ class _ProfileDetailCard extends StatelessWidget {
                       items[i].value,
                       textAlign: TextAlign.right,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
+                            color: _AppPalette.ink,
+                            fontWeight: FontWeight.w800,
                           ),
                     ),
                   ),
@@ -4906,8 +5005,8 @@ class _InlineInfoRows extends StatelessWidget {
                 child: Text(
                   items[i].label,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Colors.grey.shade700,
-                        fontWeight: FontWeight.w700,
+                        color: _AppPalette.muted,
+                        fontWeight: FontWeight.w800,
                       ),
                 ),
               ),
@@ -4917,7 +5016,8 @@ class _InlineInfoRows extends StatelessWidget {
                   items[i].value,
                   textAlign: TextAlign.right,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        color: _AppPalette.ink,
+                        fontWeight: FontWeight.w800,
                       ),
                 ),
               ),
@@ -4945,16 +5045,15 @@ class _GuidanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final background = switch (tone) {
-      _ChipTone.success => Colors.green.shade50,
-      _ChipTone.danger => Colors.red.shade50,
-      _ChipTone.neutral => colorScheme.surfaceContainerHighest,
+      _ChipTone.success => _AppPalette.greenSoft,
+      _ChipTone.danger => _AppPalette.redSoft,
+      _ChipTone.neutral => _AppPalette.surfaceAlt,
     };
     final foreground = switch (tone) {
-      _ChipTone.success => Colors.green.shade700,
-      _ChipTone.danger => Colors.red.shade700,
-      _ChipTone.neutral => colorScheme.onSurfaceVariant,
+      _ChipTone.success => _AppPalette.green,
+      _ChipTone.danger => _AppPalette.red,
+      _ChipTone.neutral => _AppPalette.muted,
     };
     return Container(
       padding: const EdgeInsets.all(14),
@@ -4983,7 +5082,7 @@ class _GuidanceCard extends StatelessWidget {
                 Text(
                   message,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurface,
+                        color: _AppPalette.ink,
                         height: 1.35,
                       ),
                 ),
@@ -5357,28 +5456,29 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final background = switch (tone) {
-      _ChipTone.neutral => colorScheme.surfaceContainerHighest,
-      _ChipTone.success => Colors.green.shade50,
-      _ChipTone.danger => Colors.red.shade50,
+      _ChipTone.neutral => _AppPalette.surfaceAlt,
+      _ChipTone.success => _AppPalette.greenSoft,
+      _ChipTone.danger => _AppPalette.redSoft,
     };
     final foreground = switch (tone) {
-      _ChipTone.neutral => colorScheme.onSurfaceVariant,
-      _ChipTone.success => Colors.green.shade700,
-      _ChipTone.danger => Colors.red.shade700,
+      _ChipTone.neutral => _AppPalette.muted,
+      _ChipTone.success => _AppPalette.green,
+      _ChipTone.danger => _AppPalette.red,
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: foreground.withOpacity(0.12)),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: foreground,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
         ),
       ),
     );
