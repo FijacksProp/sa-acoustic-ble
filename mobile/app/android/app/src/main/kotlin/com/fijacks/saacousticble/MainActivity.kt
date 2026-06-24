@@ -1,6 +1,7 @@
 package com.fijacks.saacousticble
 
 import android.Manifest
+import android.bluetooth.BluetoothManager
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -28,6 +29,8 @@ class MainActivity : FlutterActivity() {
     private val acousticTransmitter = AcousticTransmitter()
     private val acousticFrameDecoder by lazy { AcousticFrameDecoder(this) }
     private val bleAdvertiser by lazy { BleAdvertiser(this, logTag) }
+    private val bluetoothManager: BluetoothManager?
+        get() = getSystemService(BluetoothManager::class.java)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -220,6 +223,9 @@ class MainActivity : FlutterActivity() {
             requestBleConnectPermission()
             return "ble_connect_permission_missing"
         }
+        if (!isBluetoothOn()) {
+            return "bluetooth_off"
+        }
         return "ble_scan_ready"
     }
 
@@ -261,6 +267,14 @@ class MainActivity : FlutterActivity() {
             )
         }
 
+        if (missingLabels.isEmpty() && !isBluetoothOn()) {
+            return mapOf(
+                "ready" to false,
+                "status" to "bluetooth_off",
+                "missing" to emptyList<String>()
+            )
+        }
+
         return mapOf(
             "ready" to missingLabels.isEmpty(),
             "status" to if (missingLabels.isEmpty()) "permissions_ready" else "permissions_missing",
@@ -291,6 +305,14 @@ class MainActivity : FlutterActivity() {
                 this,
                 uniquePermissions.toTypedArray(),
                 requestLecturerBroadcastPermissionsCode
+            )
+        }
+
+        if (missingLabels.isEmpty() && !isBluetoothOn()) {
+            return mapOf(
+                "ready" to false,
+                "status" to "bluetooth_off",
+                "missing" to emptyList<String>()
             )
         }
 
@@ -336,5 +358,9 @@ class MainActivity : FlutterActivity() {
                 requestBleScanPermissionCode
             )
         }
+    }
+
+    private fun isBluetoothOn(): Boolean {
+        return bluetoothManager?.adapter?.isEnabled == true
     }
 }

@@ -49,6 +49,15 @@ class BleScanService {
     try {
       final readiness = await _transport.ensureBleScanReady();
       if (readiness != null && readiness['ready'] != true) {
+        if (readiness['status'] == 'bluetooth_off') {
+          return ScanResultModel(
+            acousticToken: '',
+            observedAt: DateTime.now().toUtc(),
+            source: 'ble_adapter_not_ready',
+            diagnostic:
+                'Bluetooth is off. Turn Bluetooth on for both lecturer and student phones.',
+          );
+        }
         return ScanResultModel(
           acousticToken: '',
           observedAt: DateTime.now().toUtc(),

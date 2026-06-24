@@ -130,6 +130,16 @@ String _permissionPromptMessage(
   return 'Permission needed: ${labels.join(', ')}. Allow the permission prompt, then try again.';
 }
 
+String _readinessPromptMessage(
+  Map<String, dynamic>? readiness, {
+  required String fallback,
+}) {
+  if (readiness?['status'] == 'bluetooth_off') {
+    return 'Bluetooth is off. Turn Bluetooth on, then try again.';
+  }
+  return _permissionPromptMessage(readiness?['missing'], fallback: fallback);
+}
+
 _ChipTone _proofScanModeTone(String mode) {
   if (mode == 'Unknown') {
     return _ChipTone.neutral;
@@ -328,6 +338,7 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
   }
 
   Future<void> _logout() async {
+    LecturerBroadcastService().stop();
     await AuthService().logout();
     if (!mounted) {
       return;
@@ -1146,8 +1157,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
     if (readiness == null || readiness['ready'] == true) {
       return true;
     }
-    final message = _permissionPromptMessage(
-      readiness['missing'],
+    final message = _readinessPromptMessage(
+      readiness,
       fallback:
           'Allow microphone, location, and nearby-device permissions, then scan again.',
     );
@@ -2515,8 +2526,22 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   @override
   void initState() {
     super.initState();
+    _attachBroadcastStream();
     _loadBeaconRooms();
     _loadCurrentSession();
+  }
+
+  void _attachBroadcastStream() {
+    _broadcastSub?.cancel();
+    _broadcastSnapshot = _broadcast.latest;
+    _broadcastSub = _broadcast.stream.listen((snapshot) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _broadcastSnapshot = snapshot;
+      });
+    });
   }
 
   Future<void> _loadBeaconRooms() async {
@@ -2710,8 +2735,8 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     if (readiness == null || readiness['ready'] == true) {
       return true;
     }
-    final message = _permissionPromptMessage(
-      readiness['missing'],
+    final message = _readinessPromptMessage(
+      readiness,
       fallback:
           'Allow Nearby Devices / Bluetooth permission, then start broadcast again.',
     );
@@ -2761,15 +2786,6 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
       sessionId: sessionId,
       tokenVersion: _tokenVersionController.text.trim(),
     );
-    _broadcastSub?.cancel();
-    _broadcastSub = _broadcast.stream.listen((snapshot) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _broadcastSnapshot = snapshot;
-      });
-    });
     setState(() {
       _broadcastSnapshot = _broadcast.latest;
     });
@@ -2819,7 +2835,6 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
 
   @override
   void dispose() {
-    _broadcast.dispose();
     _broadcastSub?.cancel();
     _courseCodeController.dispose();
     _courseTitleController.dispose();
@@ -3215,6 +3230,7 @@ class LecturerLivePage extends StatefulWidget {
 
 class _LecturerLivePageState extends State<LecturerLivePage> {
   final _api = AttendanceApiService();
+  final _searchController = TextEditingController();
 
   bool _loading = true;
   String? _error;
@@ -3224,6 +3240,31 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
   void initState() {
     super.initState();
     _loadSessions();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<SessionModel> get _filteredSessions {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _sessions;
+    }
+    return _sessions.where((session) {
+      final values = [
+        session.id?.toString() ?? '',
+        session.courseCode,
+        session.courseTitle,
+        session.lecturerName,
+        session.room,
+        session.attendanceOpen ? 'open attendance live' : 'closed ready',
+        session.active ? 'active' : 'inactive',
+      ].join(' ').toLowerCase();
+      return values.contains(query);
+    }).toList();
   }
 
   Future<void> _loadSessions() async {
@@ -3314,6 +3355,7 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
   Widget build(BuildContext context) {
     final openCount = _sessions.where((session) => session.attendanceOpen).length;
     final activeCount = _sessions.where((session) => session.active).length;
+    final filteredSessions = _filteredSessions;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
@@ -3325,11 +3367,17 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
             openSessions: openCount,
           ),
           const SizedBox(height: 12),
+          _CompactSearchField(
+            controller: _searchController,
+            hint: 'Search course, room, lecturer, session ID or status',
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: Text(
-                  'Session Register',
+                  'Session Register (${filteredSessions.length})',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
@@ -3353,11 +3401,13 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                       )
                     : _sessions.isEmpty
                         ? const _EmptyState(title: 'No sessions available.')
+                        : filteredSessions.isEmpty
+                            ? const _EmptyState(title: 'No matching sessions found.')
                         : ListView.separated(
-                            itemCount: _sessions.length,
+                            itemCount: filteredSessions.length,
                             separatorBuilder: (_, _) => const SizedBox(height: 10),
                             itemBuilder: (context, index) {
-                              final session = _sessions[index];
+                              final session = filteredSessions[index];
                               return _LecturerSessionListCard(
                                 session: session,
                                 selected:
@@ -3390,64 +3440,97 @@ class _LecturerLiveHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.65),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  Icons.groups_2_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Live Sessions',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.2,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Load, resume, or remove classroom sessions from one clean register.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Icon(
+              Icons.groups_2_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ),
-          const SizedBox(height: 14),
-          _MetricsStrip(
-            items: [
-              _MetricItem(label: 'Total', value: '$totalSessions'),
-              _MetricItem(label: 'Active', value: '$activeSessions'),
-              _MetricItem(label: 'Open', value: '$openSessions'),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Live Sessions',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$totalSessions total | $activeSessions active | $openSessions open',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _AppPalette.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CompactSearchField extends StatelessWidget {
+  const _CompactSearchField({
+    required this.controller,
+    required this.hint,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        isDense: true,
+        prefixIcon: const Icon(Icons.search, size: 20),
+        hintText: hint,
+        filled: true,
+        fillColor: _AppPalette.surface,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: _AppPalette.line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(color: _AppPalette.line),
+        ),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear search',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () {
+                  controller.clear();
+                  onChanged('');
+                },
+              ),
       ),
     );
   }
@@ -3578,6 +3661,7 @@ class LecturerReportsPage extends StatefulWidget {
 
 class _LecturerReportsPageState extends State<LecturerReportsPage> {
   final _api = AttendanceApiService();
+  final _searchController = TextEditingController();
   bool _loading = true;
   bool _exporting = false;
   String? _error;
@@ -3589,6 +3673,34 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
     super.initState();
     _currentSessionId = SessionStore.currentSessionId;
     _loadReport();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<ValidationReportItemModel> get _filteredItems {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _items;
+    }
+    return _items.where((row) {
+      final values = [
+        row.proofId.toString(),
+        row.sessionId.toString(),
+        row.studentId,
+        row.studentName ?? '',
+        row.courseCode ?? '',
+        row.courseTitle ?? '',
+        row.lecturerName ?? '',
+        row.room ?? '',
+        row.status,
+        _detectReportMode(row),
+      ].join(' ').toLowerCase();
+      return values.contains(query);
+    }).toList();
   }
 
   Future<void> _loadReport() async {
@@ -3752,6 +3864,7 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
         .toSet()
         .length;
     final modes = _items.map(_detectReportMode).toSet().length;
+    final filteredItems = _filteredItems;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -3765,6 +3878,12 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
             modeCount: modes,
           ),
           const SizedBox(height: 12),
+          _CompactSearchField(
+            controller: _searchController,
+            hint: 'Search student, matric, course, room, mode or session',
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -3796,15 +3915,16 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
                                 ? 'Select a session before loading reports.'
                                 : 'No attendance rows for this session yet.',
                           )
+                        : filteredItems.isEmpty
+                            ? const _EmptyState(title: 'No matching students found.')
                         : ListView.separated(
-                            itemCount: _items.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 10),
+                            itemCount: filteredItems.length,
+                            separatorBuilder: (_, _) => const SizedBox(height: 6),
                             itemBuilder: (_, index) {
-                              final row = _items[index];
+                              final row = filteredItems[index];
                               return _LecturerReportRowCard(
                                 index: index + 1,
                                 row: row,
-                                mode: _detectReportMode(row),
                               );
                             },
                           ),
@@ -3844,57 +3964,44 @@ class _LecturerReportHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: _AppPalette.surface,
-        borderRadius: BorderRadius.circular(_AppRadii.large),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _AppPalette.line),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: _AppPalette.tealSoft,
-                  borderRadius: BorderRadius.circular(17),
-                ),
-                child: const Icon(Icons.analytics_outlined, color: _AppPalette.teal),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Validation Report',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.2,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Clean attendance register for $sessionLabel.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: _AppPalette.muted,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: _AppPalette.tealSoft,
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Icon(Icons.analytics_outlined, color: _AppPalette.teal),
           ),
-          const SizedBox(height: 14),
-          _MetricsStrip(
-            items: [
-              _MetricItem(label: 'Students', value: '$totalRows'),
-              _MetricItem(label: 'Rooms', value: '$roomCount'),
-              _MetricItem(label: 'Modes', value: '$modeCount'),
-            ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Validation Report',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$sessionLabel | $totalRows students | $roomCount rooms | $modeCount modes',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _AppPalette.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -3906,12 +4013,10 @@ class _LecturerReportRowCard extends StatelessWidget {
   const _LecturerReportRowCard({
     required this.index,
     required this.row,
-    required this.mode,
   });
 
   final int index;
   final ValidationReportItemModel row;
-  final String mode;
 
   @override
   Widget build(BuildContext context) {
@@ -3924,82 +4029,46 @@ class _LecturerReportRowCard extends StatelessWidget {
         : row.studentName!.trim();
     return Card(
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Text(
-                    '$index',
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        studentName,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        row.studentId,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.onSurfaceVariant,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                _StatusChip(
-                  label: mode,
-                  tone: _proofScanModeTone(mode),
-                ),
-              ],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        leading: Container(
+          width: 34,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '$index',
+            style: TextStyle(
+              color: colors.primary,
+              fontWeight: FontWeight.w900,
             ),
-            const SizedBox(height: 12),
-            _InlineInfoRows(
-              items: [
-                _ProfileDetailItem(
-                  label: 'Course',
-                  value: courseLabel.isEmpty ? '-' : courseLabel,
-                ),
-                _ProfileDetailItem(
-                  label: 'Lecturer',
-                  value: row.lecturerName ?? '-',
-                ),
-                _ProfileDetailItem(
-                  label: 'Room',
-                  value: row.room ?? '-',
-                ),
-                _ProfileDetailItem(
-                  label: 'Proof',
-                  value: '#${row.proofId} / Session ${row.sessionId}',
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
+        title: Text(
+          studentName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        children: [
+          _InlineInfoRows(
+            items: [
+              _ProfileDetailItem(label: 'Matric Number', value: row.studentId),
+              _ProfileDetailItem(
+                label: 'Course',
+                value: courseLabel.isEmpty ? '-' : courseLabel,
+              ),
+              _ProfileDetailItem(label: 'Room', value: row.room ?? '-'),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -5186,6 +5255,7 @@ class _BroadcastPayloadCard extends StatelessWidget {
         return 'started';
       case 'ble_advertising_stopped':
         return 'stopped';
+      case 'bluetooth_off':
       case 'ble_bluetooth_off':
         return 'Bluetooth is off';
       case 'ble_advertise_permission_missing':

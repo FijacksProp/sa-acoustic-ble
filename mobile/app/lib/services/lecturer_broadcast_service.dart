@@ -37,6 +37,13 @@ class LecturerBroadcastService {
   static const int expirySeconds = 60;
   static BroadcastSnapshot? globalLatest;
 
+  factory LecturerBroadcastService() => _shared;
+
+  LecturerBroadcastService._internal();
+
+  static final LecturerBroadcastService _shared =
+      LecturerBroadcastService._internal();
+
   final _controller = StreamController<BroadcastSnapshot>.broadcast();
   Timer? _timer;
   BroadcastSnapshot? _latest;
