@@ -1,5 +1,5 @@
 name: app
-description: "A new Flutter project."
+description: "Smart classroom attendance using acoustic and BLE proximity verification."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -39,8 +39,6 @@ dependencies:
   shared_preferences: ^2.3.2
   crypto: ^3.0.6
   uuid: ^4.5.1
-  camera: ^0.11.1
-  google_mlkit_face_detection: ^0.13.1
   path_provider: ^2.1.5
   share_plus: ^11.0.0
 

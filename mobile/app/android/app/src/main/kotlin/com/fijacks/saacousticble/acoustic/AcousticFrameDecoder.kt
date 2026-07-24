@@ -230,26 +230,28 @@ class AcousticFrameDecoder(private val context: Context) {
     private fun createAudioRecord(minBuffer: Int): AudioRecord {
         val bufferSize = maxOf(minBuffer, WINDOW_SAMPLES * 4)
         try {
-            val preferred = AudioRecord(
-                preferredAudioSource(),
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
+            val preferred = buildAudioRecord(preferredAudioSource(), bufferSize)
             if (preferred.state == AudioRecord.STATE_INITIALIZED) {
                 return preferred
             }
             preferred.release()
         } catch (_: Exception) {
         }
-        return AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize
-        )
+        return buildAudioRecord(MediaRecorder.AudioSource.MIC, bufferSize)
+    }
+
+    private fun buildAudioRecord(audioSource: Int, bufferSize: Int): AudioRecord {
+        return AudioRecord.Builder()
+            .setAudioSource(audioSource)
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(bufferSize)
+            .build()
     }
 
     // Keep only the ultrasonic corridor where the transmitter operates.

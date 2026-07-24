@@ -1,20 +1,62 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:app/main.dart';
 
 void main() {
-  testWidgets('Role selection renders', (WidgetTester tester) async {
-    await tester.pumpWidget(const SaAcousticBleApp());
+  testWidgets('authentication screen renders for a signed-out user', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
 
-    expect(find.text('Select Role'), findsOneWidget);
-    expect(find.text('Student'), findsOneWidget);
-    expect(find.text('Lecturer'), findsOneWidget);
+    await tester.pumpWidget(const SaAcousticBleApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Login'), findsWidgets);
+    expect(find.text('Register'), findsWidgets);
+    expect(find.text('Welcome Back'), findsOneWidget);
+  });
+
+  testWidgets('student portal fits a typical phone viewport', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SharedPreferences.setMockInitialValues({
+      'auth_token': 'test-token',
+      'auth_role': 'student',
+      'auth_matric': '21/52HP071',
+      'auth_username': '21/52HP071',
+      'auth_full_name': 'Test Student',
+      'device_id': 'dev_test_student',
+    });
+
+    await tester.pumpWidget(const SaAcousticBleApp());
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Student Portal'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('lecturer portal fits a typical phone viewport', (
+    WidgetTester tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SharedPreferences.setMockInitialValues({
+      'auth_token': 'test-token',
+      'auth_role': 'lecturer',
+      'auth_matric': '',
+      'auth_username': 'lecturer',
+      'auth_full_name': 'Test Lecturer',
+      'device_id': 'dev_test_lecturer',
+    });
+
+    await tester.pumpWidget(const SaAcousticBleApp());
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Lecturer Portal'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

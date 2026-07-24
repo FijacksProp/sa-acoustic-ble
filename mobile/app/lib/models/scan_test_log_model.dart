@@ -45,7 +45,8 @@ class ScanTestLogModel {
 
   factory ScanTestLogModel.fromJson(Map<String, dynamic> json) {
     return ScanTestLogModel(
-      recordedAt: DateTime.tryParse(json['recorded_at']?.toString() ?? '')?.toUtc() ??
+      recordedAt:
+          DateTime.tryParse(json['recorded_at']?.toString() ?? '')?.toUtc() ??
           DateTime.now().toUtc(),
       trustSummary: json['trust_summary']?.toString() ?? '',
       acousticSource: json['acoustic_source']?.toString() ?? '',

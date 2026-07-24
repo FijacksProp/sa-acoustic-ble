@@ -9,7 +9,7 @@ from .views import (
     SessionViewSet,
     RegisterAPIView,
     LoginAPIView,
-    FaceEnrollmentAPIView,
+    LogoutAPIView,
     MeAPIView,
     AttendanceValidationReportAPIView,
 )
@@ -39,6 +39,6 @@ urlpatterns = [
     path("beacon-rooms/", BeaconRoomListAPIView.as_view(), name="beacon-room-list"),
     path("auth/register/", RegisterAPIView.as_view(), name="auth-register"),
     path("auth/login/", LoginAPIView.as_view(), name="auth-login"),
-    path("auth/face-enrollment/", FaceEnrollmentAPIView.as_view(), name="auth-face-enrollment"),
+    path("auth/logout/", LogoutAPIView.as_view(), name="auth-logout"),
     path("auth/me/", MeAPIView.as_view(), name="auth-me"),
 ]

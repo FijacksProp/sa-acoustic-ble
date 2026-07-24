@@ -97,11 +97,13 @@ class BleAdvertiser(
     }
 
     fun stop() {
-        val bleAdvertiser = advertiser ?: return
-        val callback = advertiseCallback ?: return
-        try {
-            bleAdvertiser.stopAdvertising(callback)
-        } catch (_: Exception) {
+        val bleAdvertiser = advertiser
+        val callback = advertiseCallback
+        if (bleAdvertiser != null && callback != null) {
+            try {
+                bleAdvertiser.stopAdvertising(callback)
+            } catch (_: Exception) {
+            }
         }
         advertiseCallback = null
         lastPayload = null

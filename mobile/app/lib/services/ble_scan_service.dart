@@ -26,7 +26,9 @@ class BleScanService {
     if (kIsWeb) {
       final localBroadcast = LecturerBroadcastService.globalLatest;
       if (localBroadcast != null) {
-        final decoded = SignalPayloadCodec.parseBleNonce(localBroadcast.bleNonce);
+        final decoded = SignalPayloadCodec.parseBleNonce(
+          localBroadcast.bleNonce,
+        );
         return ScanResultModel(
           acousticToken: '',
           observedAt: DateTime.now().toUtc(),
@@ -42,7 +44,8 @@ class BleScanService {
         acousticToken: '',
         observedAt: DateTime.now().toUtc(),
         source: 'web_no_ble',
-        diagnostic: 'Web mode has no real BLE scan path and no local broadcast cache.',
+        diagnostic:
+            'Web mode has no real BLE scan path and no local broadcast cache.',
       );
     }
 
@@ -76,7 +79,8 @@ class BleScanService {
           acousticToken: '',
           observedAt: DateTime.now().toUtc(),
           source: 'ble_adapter_not_ready',
-          diagnostic: 'Bluetooth adapter is $adapterState. Turn Bluetooth on for both lecturer and student phones.',
+          diagnostic:
+              'Bluetooth adapter is $adapterState. Turn Bluetooth on for both lecturer and student phones.',
         );
       }
 
@@ -149,8 +153,7 @@ class BleScanService {
     } catch (error) {
       try {
         await FlutterBluePlus.stopScan();
-      } catch (_) {
-      }
+      } catch (_) {}
       return ScanResultModel(
         acousticToken: '',
         observedAt: DateTime.now().toUtc(),
@@ -173,10 +176,12 @@ class BleScanService {
       lecturerHit: lecturerHit,
       beaconHit: beaconHit,
     );
-    final includeLecturer = lecturerHit != null &&
+    final includeLecturer =
+        lecturerHit != null &&
         (selection == _BleEvidenceSelection.lecturer ||
             selection == _BleEvidenceSelection.both);
-    final includeBeacon = beaconHit != null &&
+    final includeBeacon =
+        beaconHit != null &&
         (selection == _BleEvidenceSelection.beacon ||
             selection == _BleEvidenceSelection.both);
     final selectedRssi = _selectedRssi(
@@ -190,8 +195,10 @@ class BleScanService {
       _BleEvidenceSelection.both => 'ble_scan_lecturer_and_beacon',
     };
     final modeSummary = switch (selection) {
-      _BleEvidenceSelection.lecturer => 'Selected lecturer BLE because it was clearly stronger.',
-      _BleEvidenceSelection.beacon => 'Selected room beacon because it was clearly stronger.',
+      _BleEvidenceSelection.lecturer =>
+        'Selected lecturer BLE because it was clearly stronger.',
+      _BleEvidenceSelection.beacon =>
+        'Selected room beacon because it was clearly stronger.',
       _BleEvidenceSelection.both =>
         'Selected lecturer BLE + room beacon because RSSI values were within ${_rssiPreferenceMarginDb}dB.',
     };
@@ -253,7 +260,9 @@ class BleScanService {
     required _ParsedBeaconHit? beaconHit,
   }) {
     if (lecturerHit != null && beaconHit != null) {
-      return lecturerHit.rssi >= beaconHit.rssi ? lecturerHit.rssi : beaconHit.rssi;
+      return lecturerHit.rssi >= beaconHit.rssi
+          ? lecturerHit.rssi
+          : beaconHit.rssi;
     }
     return lecturerHit?.rssi ?? beaconHit?.rssi;
   }
@@ -290,7 +299,9 @@ class BleScanService {
         }
       }
 
-      final servicePayload = _decodeServicePayload(result.advertisementData.serviceData);
+      final servicePayload = _decodeServicePayload(
+        result.advertisementData.serviceData,
+      );
       if (servicePayload != null) {
         final parsed = SignalPayloadCodec.parseBleNonce(servicePayload);
         if (parsed != null) {
@@ -330,7 +341,8 @@ class BleScanService {
       );
       if (iBeacon != null) {
         return _ParsedBeaconHit(
-          proof: 'beacon|ibeacon|${iBeacon.uuid}|${iBeacon.major}|${iBeacon.minor}',
+          proof:
+              'beacon|ibeacon|${iBeacon.uuid}|${iBeacon.major}|${iBeacon.minor}',
           type: 'ibeacon',
           uuid: iBeacon.uuid,
           major: iBeacon.major,
@@ -344,7 +356,9 @@ class BleScanService {
         );
       }
 
-      final eddystone = _parseEddystoneUid(result.advertisementData.serviceData);
+      final eddystone = _parseEddystoneUid(
+        result.advertisementData.serviceData,
+      );
       if (eddystone != null) {
         final proof = SignalPayloadCodec.buildEddystoneBeaconProof(
           namespaceId: eddystone.namespaceId,
@@ -375,7 +389,9 @@ class BleScanService {
     }
     final sessionId = _readInt32(bytes, 0);
     final issuedEpoch = _readInt32(bytes, 4);
-    final nonce = String.fromCharCodes(bytes.sublist(8, 16)).replaceAll('_', '').trim();
+    final nonce = String.fromCharCodes(
+      bytes.sublist(8, 16),
+    ).replaceAll('_', '').trim();
     if (sessionId == null || issuedEpoch == null || nonce.isEmpty) {
       return null;
     }
@@ -470,9 +486,7 @@ class BleScanService {
   }
 
   String _bytesToCompactHex(List<int> bytes) {
-    return bytes
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
+    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 
   String _formatUuid(List<int> bytes) {

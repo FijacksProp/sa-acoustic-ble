@@ -1,70 +1,77 @@
-# Smart Attendance System Using Acoustic and BLE Proximity Verification
+# Smart Attendance System
 
-Design and Implementation of a Smart Attendance System Using Acoustic and Bluetooth Low Energy Proximity Verification.
+Design and Implementation of a Smart Attendance System Using Acoustic and
+Bluetooth Low Energy Proximity Verification.
 
-This project is a final-year project prototype for classroom attendance verification. It combines a Flutter Android mobile app, a Django REST backend, native Android acoustic signal processing, BLE advertising/scanning, device binding, validation reporting, CSV export, and a minimal Wi-Fi/LAN fallback proof path.
+This final-year project combines a Flutter Android application, native Kotlin
+signal processing, and a hosted Django REST API. Lecturers open a timed
+attendance session and broadcast rotating acoustic and BLE evidence. Students
+scan the classroom signals and submit one authenticated proof from their
+registered device. A fixed BLE room beacon can also resolve an open session for
+larger classrooms.
 
-## Project Direction
+## Current Architecture
 
-The system is designed around layered attendance proof:
+- **Lecturer phone:** creates a session and broadcasts rotating acoustic and BLE
+  payloads.
+- **Room beacon:** advertises a fixed iBeacon or Eddystone UID assigned to a
+  registered classroom.
+- **Student phone:** scans acoustic, lecturer BLE, and room-beacon evidence.
+- **Django API:** authenticates users, resolves beacon rooms, validates proof
+  freshness, enforces device ownership, and prevents duplicate attendance.
+- **PostgreSQL:** stores hosted production data; local development falls back to
+  SQLite.
 
-- BLE is the main practical classroom-range proximity signal.
-- Acoustic beaconing is a short-range copresence signal using the lecturer phone speaker and student phone microphone.
-- Wi-Fi/LAN proof is a secondary fallback for controlled local-network situations, not the main proximity technology.
-- Device ID binding reduces account-sharing fraud by linking one student account to one trusted device.
-- The backend performs final validation so the mobile app is not trusted alone.
+BLE is the principal classroom-range mechanism in the present implementation.
+The acoustic path works as a short-range co-presence channel and remains
+sensitive to noise and phone audio hardware. Wi-Fi/LAN and face verification
+were evaluated during prototyping but are not active attendance paths.
 
-## Current Status
+## Implemented Features
 
-Implemented:
+- Student and lecturer registration and token-authenticated login
+- Persistent one-student-to-one-device binding
+- Lecturer-owned session creation, room selection, opening, closing, and deletion
+- Fifteen-minute attendance windows with automatic server-side expiry
+- Android foreground acoustic and BLE broadcast with 45-second signal rotation
+- Broadcast continuity during in-app navigation and screen lock
+- Concurrent acoustic and BLE scanning on student devices
+- CP27-compatible iBeacon and Eddystone UID room-beacon detection
+- RSSI-aware selection between lecturer BLE and room-beacon evidence
+- Session, freshness, room, identity, proof-integrity, and duplicate checks
+- Student attendance history
+- Lecturer live-session search, session-specific reports, and CSV export
+- Django admin views for sessions, proofs, beacons, users, and device resets
+- Friendly mobile error and permission messages
 
-- Student and lecturer registration/login.
-- Lecturer session creation, live session management, and session deletion.
-- Acoustic broadcast and microphone scan on Android.
-- BLE advertising and BLE scan on Android.
-- Runtime permission prompts for microphone, location, and nearby devices/Bluetooth.
-- Wi-Fi/LAN fallback proof for same-network testing.
-- Attendance proof submission with duplicate prevention.
-- Device ID binding and device-trust validation.
-- Lecturer validation report filtered by selected/current session.
-- CSV export for attendance records.
-- Runtime backend URL setting inside the app.
-- FYP documentation drafts for Chapters 1-3.
-
-Known limitations:
-
-- Acoustic decoding is currently short-range and affected by noise, speaker quality, microphone quality, and phone orientation.
-- BLE range depends on permissions, Bluetooth hardware, obstacles, and room conditions.
-- Wi-Fi/LAN fallback proves local network presence, not exact classroom distance.
-- iOS is not supported yet because the native acoustic and BLE implementation is currently Android/Kotlin-based.
-
-## Repository Structure
+## Repository Layout
 
 ```text
-sa-acoustic-ble/
-  backend/                    Django REST API and SQLite database
-  mobile/app/                 Flutter app with Android native integrations
-  docs/fyp/                   Formal FYP chapters, references, and source notes
-  docs/presentation_readiness Practical seminar/demo notes
-  docs/                       Setup and handoff documentation
+backend/                    Django REST API and deployment configuration
+mobile/app/                 Flutter application and Android Kotlin integrations
+docs/fyp/                   Project report chapters, sources, and report builders
+docs/presentation_readiness Seminar, room, beacon, and cost notes
+docs/                       Architecture, payload, API, and security notes
 ```
 
-## Technology Stack
+## Hosted Service
 
-| Layer | Technology |
-| --- | --- |
-| Mobile app | Flutter / Dart |
-| Android native layer | Kotlin |
-| BLE scan/advertise | Android Bluetooth APIs and flutter_blue_plus |
-| Acoustic signal | Android native speaker/microphone processing |
-| Backend | Django and Django REST Framework |
-| Authentication | DRF token authentication |
-| Database | SQLite locally, PostgreSQL/Supabase for hosted deployment |
-| Version control | Git and GitHub |
+The mobile app defaults to:
 
-## Backend Setup
+```text
+https://sa-acoustic-ble.onrender.com
+```
 
-From the project root:
+Health check:
+
+```text
+https://sa-acoustic-ble.onrender.com/api/health/
+```
+
+Render free-tier services may need a short cold-start period after inactivity.
+The mobile client allows up to 75 seconds for hosted API requests.
+
+## Backend Development
 
 ```powershell
 cd backend
@@ -72,181 +79,127 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
-```
-
-Use `0.0.0.0:8000` when testing with real phones on the same Wi-Fi/hotspot.
-
-For local browser testing on the same PC:
-
-```powershell
 python manage.py runserver 127.0.0.1:8000
 ```
 
-For the hosted Render + Supabase setup, see:
+Run backend checks and tests:
 
-```text
-docs/RENDER_SUPABASE_DEPLOYMENT.md
+```powershell
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test attendance
 ```
 
-## Mobile App Setup
+For phone testing against a local server, use `0.0.0.0:8000`, allow port 8000
+through Windows Firewall, and build the app with the laptop's current LAN
+address. Hosted builds do not require this.
 
-From the Flutter app folder:
+## Mobile Development
 
 ```powershell
 cd mobile\app
 flutter pub get
+flutter run -d <device-id>
 ```
 
-Run on Chrome or Edge for UI-level testing:
+To test against a local backend:
 
 ```powershell
-flutter run -d chrome --dart-define=API_BASE_URL=http://127.0.0.1:8000
+flutter run -d <device-id> --dart-define=API_BASE_URL=http://<laptop-ip>:8000
 ```
 
-Run on a connected Android phone:
+Run focused mobile tests:
 
 ```powershell
-flutter run -d DEVICE_ID --dart-define=API_BASE_URL=http://YOUR_PC_IP:8000
+flutter test --no-pub
 ```
 
-Example:
+## Build the Android APK
 
-```powershell
-flutter run -d 23106RN0DA --dart-define=API_BASE_URL=http://10.73.208.158:8000
-```
-
-## Build APK for Wireless Testing
-
-Start the backend first:
-
-```powershell
-cd backend
-python manage.py runserver 0.0.0.0:8000
-```
-
-Find the laptop IP:
-
-```powershell
-ipconfig
-```
-
-Build the APK:
+Debug APK:
 
 ```powershell
 cd mobile\app
-flutter build apk --debug --dart-define=API_BASE_URL=http://YOUR_PC_IP:8000
+flutter build apk --debug
 ```
 
-The APK is generated at:
+Release APK:
+
+```powershell
+flutter build apk --release
+```
+
+Generated files:
 
 ```text
-mobile\app\build\app\outputs\flutter-apk\app-debug.apk
+build/app/outputs/flutter-apk/app-debug.apk
+build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Install the APK on Android phones, connect the phones and laptop to the same network, then update the backend URL inside the app if the laptop IP changes.
+The current release build uses the debug signing configuration for project
+testing. A private release keystore is required before public distribution.
 
 ## Android Permissions
 
-For best results, allow these permissions when prompted:
+- **Microphone:** acoustic attendance scanning
+- **Nearby Devices / Bluetooth:** BLE scanning and lecturer advertising
+- **Location:** reliable BLE discovery on supported Android versions
+- **Foreground service:** continued lecturer broadcast while the screen is locked
 
-- Microphone: required for acoustic scanning.
-- Nearby Devices / Bluetooth: required for BLE scan and advertising.
-- Location: required by Android for reliable BLE scanning on many devices.
-- Camera: currently not part of the main attendance proof path, but may be used by optional face-enrollment code.
-
-If BLE range seems poor, confirm that Location and Nearby Devices permissions are enabled in Android app settings.
+The application prompts for the required scan or broadcast permissions at the
+point of use. Bluetooth must be enabled on the participating phones.
 
 ## Attendance Workflow
 
-Lecturer:
+### Lecturer
 
-1. Log in as lecturer.
-2. Create a session with course, lecturer, room, and token version details.
-3. Start broadcast.
-4. Keep Bluetooth enabled and permissions granted.
-5. View validation reports and export CSV after students submit.
+1. Sign in with a lecturer account.
+2. Create a session using the course and classroom details.
+3. Open attendance when students are physically present.
+4. Keep the app running; the Android foreground service continues broadcasting
+   across app pages and while the screen is locked.
+5. Close attendance, review submissions, and export the session CSV.
 
-Student:
+### Student
 
-1. Log in as student.
-2. Open the scan page.
-3. Use Acoustic/BLE scan as the preferred proof path.
-4. Use Wi-Fi/LAN fallback only when needed and allowed.
-5. Submit proof once.
-6. View attendance history.
+1. Sign in on the device registered to the account.
+2. Keep Bluetooth, Location, and Microphone permissions enabled.
+3. Run one classroom signal scan.
+4. Review the identified session and detected proof mode.
+5. Submit attendance once and confirm it in History.
 
 ## Validation Rules
 
-The backend checks:
+The API enforces:
 
-- Authenticated student identity.
-- Active session.
-- Student ID matches the logged-in student.
-- Registered device ID and device ownership.
-- At least one valid proof path: BLE, acoustic, or Wi-Fi/LAN fallback.
-- Proof freshness.
-- Replay protection for acoustic/BLE proof.
-- One attendance submission per student per session.
+- authenticated role and account ownership
+- lecturer ownership of session changes
+- one open attendance session per registered room
+- effective attendance-window expiry
+- one attendance record per student per session
+- persistent device ownership and cross-account device conflicts
+- signal format, session identity, and 60-second acoustic/BLE freshness
+- registered beacon identity, room assignment, and minimum RSSI
+- proof digest consistency
+- student-scoped replay records that still allow every student to use the same
+  classroom broadcast nonce
 
-## Documentation
+Device ID binding discourages casual account sharing but is not equivalent to
+tamper-resistant hardware attestation. Administrative device reset and stronger
+institutional identity controls would be required for production deployment.
 
-Formal FYP drafts:
+## Deployment and Documentation
 
-- `docs/fyp/CHAPTER_ONE.md`
-- `docs/fyp/CHAPTER_TWO.md`
-- `docs/fyp/CHAPTER_THREE.md`
-- `docs/fyp/REFERENCES.md`
-- `docs/fyp/SOURCES_TO_CONFIRM.md`
+- Render and Supabase setup: `docs/RENDER_SUPABASE_DEPLOYMENT.md`
+- Architecture: `docs/ARCHITECTURE.md`
+- Anti-fraud rules: `docs/ANTI_FRAUD_DEVICE_RULES.md`
+- FYP chapters: `docs/fyp/CHAPTER_ONE.md` through
+  `docs/fyp/CHAPTER_FIVE.md`
 
-Presentation readiness notes:
+## Project Scope
 
-- `docs/presentation_readiness/01_APK_LAN_DEMO_SETUP.md`
-- `docs/presentation_readiness/02_ROOM_SIZE_AND_OPERATING_CONDITIONS.md`
-- `docs/presentation_readiness/03_WIFI_VERIFICATION_OPTION.md`
-- `docs/presentation_readiness/04_COST_IMPLICATION.md`
-
-## Academic Position
-
-This project should be presented honestly:
-
-- BLE is currently the stronger classroom proximity signal.
-- Acoustic beaconing demonstrates an innovative telecommunication concept but is short-range in the current prototype.
-- Wi-Fi/LAN is a fallback channel for controlled network scenarios.
-- Fixed BLE beacons can extend coverage for medium and large classrooms.
-- The system is a proximity-verification prototype, not a perfect indoor positioning system.
-
-## Useful Commands
-
-Check backend:
-
-```powershell
-cd backend
-python manage.py check
-python manage.py makemigrations --check --dry-run
-```
-
-Apply migrations:
-
-```powershell
-cd backend
-python manage.py migrate
-```
-
-Run backend for phone testing:
-
-```powershell
-cd backend
-python manage.py runserver 0.0.0.0:8000
-```
-
-Build Android APK:
-
-```powershell
-cd mobile\app
-flutter build apk --debug --dart-define=API_BASE_URL=http://YOUR_PC_IP:8000
-```
-
-## License and Use
-
-This project is being developed as an academic final-year project prototype. Production deployment would require additional security review, privacy policy, server hardening, broader device testing, and institutional approval.
+The current build is an Android research prototype validated on a limited set of
+real devices. iOS would require a macOS/Xcode build environment and separate
+native acoustic/BLE implementation and testing. Institutional deployment would
+also require a privacy policy, secure release signing, device-reset governance,
+broader classroom trials, and independent security review.

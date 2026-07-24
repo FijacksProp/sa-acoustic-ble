@@ -125,18 +125,16 @@ class AttendanceProofAdmin(admin.ModelAdmin):
                 )
             },
         ),
-        (
-            "Face Fields",
-            {
-                "classes": ("collapse",),
-                "fields": (
-                    "face_verification_status",
-                    "face_match_score",
-                    "attendance_face_image_base64",
-                ),
-            },
-        ),
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     @admin.display(description="Student Name")
     def student_name(self, obj):
@@ -202,6 +200,7 @@ class RegisteredBeaconAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
+    exclude = ("face_image_base64",)
     list_display = (
         "id",
         "full_name",
@@ -224,6 +223,7 @@ class UserProfileAdmin(admin.ModelAdmin):
         "registered_device_display",
     )
     ordering = ("role", "matric_number", "user__username")
+    actions = ("reset_selected_device_bindings",)
 
     @admin.display(description="Full Name")
     def full_name(self, obj):
@@ -236,6 +236,17 @@ class UserProfileAdmin(admin.ModelAdmin):
     @admin.display(description="Registered Device")
     def registered_device_display(self, obj):
         return _display_device_id(obj.registered_device_id)
+
+    @admin.action(description="Reset device binding for selected students")
+    def reset_selected_device_bindings(self, request, queryset):
+        updated = queryset.filter(role=UserProfile.ROLE_STUDENT).update(
+            registered_device_id="",
+            registered_device_at=None,
+        )
+        self.message_user(
+            request,
+            f"Reset {updated} student device binding(s).",
+        )
 
 
 @admin.register(AttendanceReplayGuard)
@@ -255,8 +266,23 @@ class AttendanceReplayGuardAdmin(admin.ModelAdmin):
         "ble_nonce",
         "session__course_code",
     )
-    readonly_fields = ("used_at",)
+    readonly_fields = (
+        "session",
+        "student_id",
+        "challenge_token",
+        "ble_nonce",
+        "used_at",
+    )
     ordering = ("-used_at",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     @admin.display(description="Challenge")
     def challenge_preview(self, obj):

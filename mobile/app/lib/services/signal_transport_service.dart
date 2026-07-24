@@ -15,7 +15,8 @@ class BroadcastNativeStatus {
 
   factory BroadcastNativeStatus.fromMap(Map<String, dynamic>? map) {
     return BroadcastNativeStatus(
-      acousticStatus: map?['acousticStatus']?.toString() ?? 'acoustic_status_unknown',
+      acousticStatus:
+          map?['acousticStatus']?.toString() ?? 'acoustic_status_unknown',
       bleStatus: map?['bleStatus']?.toString() ?? 'ble_status_unknown',
       acousticPayloadPresent: map?['acousticPayloadPresent'] == true,
       blePayloadPresent: map?['blePayloadPresent'] == true,
@@ -24,17 +25,19 @@ class BroadcastNativeStatus {
 }
 
 class SignalTransportService {
-  static const MethodChannel _channel = MethodChannel('sa_acoustic_ble/acoustic');
+  static const MethodChannel _channel = MethodChannel(
+    'sa_acoustic_ble/acoustic',
+  );
 
   Future<BroadcastNativeStatus> startBroadcast({
     required String acousticToken,
     required String bleNonce,
   }) async {
     try {
-      final response = await _channel.invokeMethod<Map<Object?, Object?>>('startBroadcast', {
-        'acousticToken': acousticToken,
-        'bleNonce': bleNonce,
-      });
+      final response = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'startBroadcast',
+        {'acousticToken': acousticToken, 'bleNonce': bleNonce},
+      );
       return BroadcastNativeStatus.fromMap(
         response?.map((key, value) => MapEntry('$key', value)),
       );
@@ -91,15 +94,9 @@ class SignalTransportService {
       }
       return map.map((key, value) => MapEntry('$key', value));
     } on PlatformException catch (error) {
-      return {
-        'ready': false,
-        'status': error.code,
-      };
+      return {'ready': false, 'status': error.code};
     } on MissingPluginException {
-      return {
-        'ready': false,
-        'status': 'native_plugin_unavailable',
-      };
+      return {'ready': false, 'status': 'native_plugin_unavailable'};
     }
   }
 
@@ -113,15 +110,9 @@ class SignalTransportService {
       }
       return map.map((key, value) => MapEntry('$key', value));
     } on PlatformException catch (error) {
-      return {
-        'ready': false,
-        'status': error.code,
-      };
+      return {'ready': false, 'status': error.code};
     } on MissingPluginException {
-      return {
-        'ready': false,
-        'status': 'native_plugin_unavailable',
-      };
+      return {'ready': false, 'status': 'native_plugin_unavailable'};
     }
   }
 
@@ -135,15 +126,9 @@ class SignalTransportService {
       }
       return map.map((key, value) => MapEntry('$key', value));
     } on PlatformException catch (error) {
-      return {
-        'ready': false,
-        'status': error.code,
-      };
+      return {'ready': false, 'status': error.code};
     } on MissingPluginException {
-      return {
-        'ready': false,
-        'status': 'native_plugin_unavailable',
-      };
+      return {'ready': false, 'status': 'native_plugin_unavailable'};
     }
   }
 }

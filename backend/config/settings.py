@@ -192,6 +192,17 @@ CSRF_TRUSTED_ORIGINS = _env_list(
     default=["https://*.onrender.com"],
 )
 
+if not DEBUG:
+    SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", default=True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "3600"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool(
+        "SECURE_HSTS_INCLUDE_SUBDOMAINS",
+        default=False,
+    )
+    SECURE_HSTS_PRELOAD = _env_bool("SECURE_HSTS_PRELOAD", default=False)
+
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",
     r"^http://127\.0\.0\.1:\d+$",
@@ -207,3 +218,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
+
+ATTENDANCE_WINDOW_MINUTES = int(
+    os.environ.get("ATTENDANCE_WINDOW_MINUTES", "15")
+)

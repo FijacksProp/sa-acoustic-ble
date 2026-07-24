@@ -7,7 +7,6 @@ class SessionStore {
   static const _keyMatric = 'auth_matric';
   static const _keyUsername = 'auth_username';
   static const _keyFullName = 'auth_full_name';
-  static const _keyHasFaceEnrollment = 'auth_has_face_enrollment';
   static const _keyRegisteredDeviceId = 'auth_registered_device_id';
   static const _keyDeviceId = 'device_id';
   static const _keyCurrentSessionId = 'current_session_id';
@@ -17,7 +16,6 @@ class SessionStore {
   static String? matricNumber;
   static String? username;
   static String? fullName;
-  static bool hasFaceEnrollment = false;
   static String? registeredDeviceId;
   static String? deviceId;
   static String? currentSessionId;
@@ -31,7 +29,6 @@ class SessionStore {
     matricNumber = prefs.getString(_keyMatric);
     username = prefs.getString(_keyUsername);
     fullName = prefs.getString(_keyFullName);
-    hasFaceEnrollment = prefs.getBool(_keyHasFaceEnrollment) ?? false;
     registeredDeviceId = prefs.getString(_keyRegisteredDeviceId);
     deviceId = prefs.getString(_keyDeviceId);
     currentSessionId = prefs.getString(_keyCurrentSessionId);
@@ -43,7 +40,6 @@ class SessionStore {
     required String matricValue,
     required String usernameValue,
     required String fullNameValue,
-    required bool hasFaceEnrollmentValue,
     String registeredDeviceIdValue = '',
   }) async {
     token = tokenValue;
@@ -51,7 +47,6 @@ class SessionStore {
     matricNumber = matricValue;
     username = usernameValue;
     fullName = fullNameValue;
-    hasFaceEnrollment = hasFaceEnrollmentValue;
     registeredDeviceId = registeredDeviceIdValue;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyToken, tokenValue);
@@ -59,7 +54,6 @@ class SessionStore {
     await prefs.setString(_keyMatric, matricValue);
     await prefs.setString(_keyUsername, usernameValue);
     await prefs.setString(_keyFullName, fullNameValue);
-    await prefs.setBool(_keyHasFaceEnrollment, hasFaceEnrollmentValue);
     await prefs.setString(_keyRegisteredDeviceId, registeredDeviceIdValue);
   }
 
@@ -69,9 +63,7 @@ class SessionStore {
     matricNumber = null;
     username = null;
     fullName = null;
-    hasFaceEnrollment = false;
     registeredDeviceId = null;
-    deviceId = null;
     currentSessionId = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyToken);
@@ -79,9 +71,7 @@ class SessionStore {
     await prefs.remove(_keyMatric);
     await prefs.remove(_keyUsername);
     await prefs.remove(_keyFullName);
-    await prefs.remove(_keyHasFaceEnrollment);
     await prefs.remove(_keyRegisteredDeviceId);
-    await prefs.remove(_keyDeviceId);
     await prefs.remove(_keyCurrentSessionId);
   }
 
@@ -119,12 +109,6 @@ class SessionStore {
     }
   }
 
-  static Future<void> setHasFaceEnrollment(bool value) async {
-    hasFaceEnrollment = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyHasFaceEnrollment, value);
-  }
-
   static Future<void> setRegisteredDeviceId(String value) async {
     registeredDeviceId = value;
     final prefs = await SharedPreferences.getInstance();
@@ -140,7 +124,9 @@ class SessionStore {
         .replaceFirst(RegExp(r'^dev_'), '')
         .replaceAll('-', '')
         .toUpperCase();
-    final suffix = compact.length <= 8 ? compact : compact.substring(compact.length - 8);
+    final suffix = compact.length <= 8
+        ? compact
+        : compact.substring(compact.length - 8);
     return 'DEV-$suffix';
   }
 }

@@ -9,22 +9,21 @@ import 'error_messages.dart';
 import 'session_store.dart';
 
 class ApiClient {
-  ApiClient({http.Client? client}) : _client = client ?? http.Client();
+  ApiClient({http.Client? client}) : _client = client ?? _sharedClient;
 
+  static final http.Client _sharedClient = http.Client();
   final http.Client _client;
 
   Uri _uri(String path) => Uri.parse('${ApiConfig.currentBaseUrl}$path');
 
   Future<Map<String, dynamic>> postJson(
     String path,
-    Map<String, dynamic> body,
-  ) async {
+    Map<String, dynamic> body, {
+    Duration timeout = const Duration(seconds: 75),
+  }) async {
     final response = await _send(
-      _client.post(
-        _uri(path),
-        headers: _headers(),
-        body: jsonEncode(body),
-      ),
+      _client.post(_uri(path), headers: _headers(), body: jsonEncode(body)),
+      timeout: timeout,
     );
     return _decodeResponse(response);
   }
@@ -44,7 +43,9 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> delete(String path) async {
-    final response = await _send(_client.delete(_uri(path), headers: _headers()));
+    final response = await _send(
+      _client.delete(_uri(path), headers: _headers()),
+    );
     return _decodeResponse(response);
   }
 
@@ -57,9 +58,12 @@ class ApiClient {
     return headers;
   }
 
-  Future<http.Response> _send(Future<http.Response> request) async {
+  Future<http.Response> _send(
+    Future<http.Response> request, {
+    Duration timeout = const Duration(seconds: 75),
+  }) async {
     try {
-      return await request.timeout(const Duration(seconds: 20));
+      return await request.timeout(timeout);
     } on TimeoutException catch (error) {
       throw ApiException(friendlyErrorMessage(error));
     } on SocketException catch (error) {
@@ -80,12 +84,12 @@ class ApiClient {
     } on FormatException {
       if (body.trimLeft().startsWith('<')) {
         throw ApiException(
-          'The backend returned an unexpected page. Restart the backend and try again.',
+          'The attendance service returned an invalid response.',
           statusCode: response.statusCode,
         );
       }
       throw ApiException(
-        'The backend returned a response the app could not read.',
+        'The attendance service returned a response the app could not read.',
         statusCode: response.statusCode,
       );
     }
@@ -117,7 +121,8 @@ class ApiClient {
       401 => 'Your session has expired. Please log in again.',
       403 => 'You do not have permission to perform this action.',
       404 => 'The requested record could not be found.',
-      >= 500 => 'The backend had an internal error. Please restart it and try again.',
+      >= 500 =>
+        'The attendance service could not complete the request. Please try again.',
       _ => 'Request failed. Please try again.',
     };
   }

@@ -1,17 +1,36 @@
-# app
+# Smart Attendance Mobile App
 
-A new Flutter project.
+Flutter client for the Smart Attendance System. The Android application lets
+lecturers create and open attendance sessions, broadcasts rotating acoustic and
+Bluetooth Low Energy (BLE) signals, scans those signals on student devices, and
+submits authenticated attendance proofs to the Django API.
 
-## Getting Started
+## Main Workflows
 
-This project is a starting point for a Flutter application.
+- Student and lecturer registration and login
+- Device-bound student accounts
+- Lecturer session creation and room selection
+- Foreground acoustic and BLE broadcasting on Android
+- Student acoustic, lecturer BLE, and registered room-beacon scanning
+- Duplicate-safe attendance submission
+- Student history, lecturer live-session views, reports, and CSV export
 
-A few resources to get you started if this is your first Flutter project:
+## Run
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+From this directory:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```powershell
+flutter pub get
+flutter run -d <device-id> --dart-define=API_BASE_URL=https://sa-acoustic-ble.onrender.com
+```
+
+The hosted API URL is the default in the app. The `--dart-define` is only
+required when testing a different backend.
+
+## Build an Android APK
+
+```powershell
+flutter build apk --release --dart-define=API_BASE_URL=https://sa-acoustic-ble.onrender.com
+```
+
+The APK is written to `build/app/outputs/flutter-apk/app-release.apk`.

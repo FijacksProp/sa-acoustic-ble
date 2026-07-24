@@ -22,7 +22,20 @@
 - [Chapter Five: Summary, Conclusion and Recommendations](CHAPTER_FIVE.md)
 - [References](REFERENCES.md)
 
-## Working Notes
+## Generated Report
 
-This report is being developed progressively as the implementation and testing of the system continue. Final experimental values, screenshots, figures, tables, and device-specific test results will be completed after broader APK testing on multiple Android devices.
+- [Final Microsoft Word report](Smart_Attendance_System_Final_Project_Report.docx)
+- [Rendered PDF report](Smart_Attendance_System_Final_Project_Report.pdf)
+- [Report quality audit](REPORT_QUALITY_AUDIT.md)
+- [Source verification register](SOURCES_TO_CONFIRM.md)
 
+The Word and PDF files contain Chapters One to Five, the preliminary pages,
+15 verified references, nine numbered tables, and four implementation-derived
+technical figures. The current physical results are limited to the documented
+four-device evaluation and are not presented as statistical or institution-wide
+performance.
+
+Final installed-APK interface screenshots should be added only after they are
+captured from the release candidate with populated but anonymised demonstration
+data. The report generator deliberately skips absent screenshots rather than
+inserting staged or obsolete images.

@@ -15,7 +15,7 @@ String friendlyErrorMessage(
       lower.contains('software caused connection abort') ||
       lower.contains('failed host lookup') ||
       lower.contains('connection refused')) {
-    return 'Cannot reach the backend. Check that the server is running and your phone is on the same network.';
+    return 'Cannot connect to the attendance service. Check your internet connection and try again in a minute.';
   }
 
   if (lower.contains('timeout')) {
@@ -32,19 +32,11 @@ String friendlyErrorMessage(
   }
 
   if (lower.contains('wi-fi') || lower.contains('wifi')) {
-    if (lower.contains('local private network') ||
-        lower.contains('lan proof requires')) {
-      return 'Connect to the lecturer/classroom Wi-Fi or hotspot, then try Wi-Fi/LAN verification again.';
-    }
-    if (lower.contains('expired')) {
-      return 'The Wi-Fi/LAN proof expired. Tap Verify Wi-Fi/LAN again and submit immediately.';
-    }
-    if (lower.contains('no active session')) {
-      return 'No active class session is available for Wi-Fi/LAN verification.';
-    }
+    return 'Wi-Fi attendance is no longer available. Use acoustic, lecturer Bluetooth, or the room beacon.';
   }
 
-  if (lower.contains('already registered') || lower.contains('already exists')) {
+  if (lower.contains('already registered') ||
+      lower.contains('already exists')) {
     return 'This account already exists. Try logging in instead.';
   }
 
@@ -67,15 +59,16 @@ String friendlyErrorMessage(
 
   if (lower.contains('unexpected html response') ||
       lower.contains('server returned an unexpected page')) {
-    return 'The backend returned an unexpected page. Restart the backend and try again.';
+    return 'The attendance service returned an invalid response. Please try again shortly.';
   }
 
   if (lower.contains('request failed (500)') ||
       lower.contains('server error')) {
-    return 'The backend had an internal error. Please restart it and try again.';
+    return 'The attendance service could not complete the request. Please try again.';
   }
 
-  if (lower.contains('request failed (401)') || lower.contains('unauthorized')) {
+  if (lower.contains('request failed (401)') ||
+      lower.contains('unauthorized')) {
     return 'Your session has expired. Please log in again.';
   }
 

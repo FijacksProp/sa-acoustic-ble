@@ -7,13 +7,13 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.fijacks.saacousticble.acoustic.AcousticTransmitter
 import com.fijacks.saacousticble.acoustic.AcousticFrameDecoder
-import com.fijacks.saacousticble.ble.BleAdvertiser
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
 import java.time.Instant
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
     private val channelName = "sa_acoustic_ble/acoustic"
@@ -24,11 +24,9 @@ class MainActivity : FlutterActivity() {
     private val requestBleScanPermissionCode = 1206
     private val requestStudentScanPermissionsCode = 1207
     private val requestLecturerBroadcastPermissionsCode = 1208
-    private var latestAcousticToken: String? = null
-    private var latestBleNonce: String? = null
-    private val acousticTransmitter = AcousticTransmitter()
     private val acousticFrameDecoder by lazy { AcousticFrameDecoder(this) }
-    private val bleAdvertiser by lazy { BleAdvertiser(this, logTag) }
+    private val acousticExecutor = Executors.newSingleThreadExecutor()
+    private val acousticScanInProgress = AtomicBoolean(false)
     private val bluetoothManager: BluetoothManager?
         get() = getSystemService(BluetoothManager::class.java)
 
@@ -40,15 +38,10 @@ class MainActivity : FlutterActivity() {
                     "startBroadcast" -> {
                         val acousticToken = call.argument<String>("acousticToken")
                         val bleNonce = call.argument<String>("bleNonce")
-                        latestAcousticToken = acousticToken
-                        latestBleNonce = bleNonce
                         Log.i(
                             logTag,
                             "startBroadcast sessionPayload acoustic=${!acousticToken.isNullOrBlank()} ble=${!bleNonce.isNullOrBlank()}"
                         )
-                        if (!acousticToken.isNullOrBlank()) {
-                            acousticTransmitter.start(acousticToken)
-                        }
                         if (!bleNonce.isNullOrBlank()) {
                             if (!hasBleAdvertisePermission()) {
                                 requestBleAdvertisePermission()
@@ -68,35 +61,35 @@ class MainActivity : FlutterActivity() {
                                 )
                                 return@setMethodCallHandler
                             }
-                            bleAdvertiser.start(bleNonce)
                         }
+                        if (acousticToken.isNullOrBlank() || bleNonce.isNullOrBlank()) {
+                            result.error(
+                                "BROADCAST_PAYLOAD_REQUIRED",
+                                "Acoustic and BLE payloads are required for attendance broadcast.",
+                                null
+                            )
+                            return@setMethodCallHandler
+                        }
+                        AttendanceBroadcastService.start(
+                            this,
+                            acousticToken,
+                            bleNonce,
+                        )
                         result.success(
                             mapOf(
-                                "acousticStatus" to if (!acousticToken.isNullOrBlank()) {
-                                    "acoustic_broadcast_started"
-                                } else {
-                                    "acoustic_payload_missing"
-                                },
-                                "bleStatus" to bleAdvertiser.latestStatus(),
+                                "acousticStatus" to "foreground_broadcast_start_requested",
+                                "bleStatus" to "foreground_broadcast_start_requested",
                                 "blePayloadPresent" to !bleNonce.isNullOrBlank(),
                                 "acousticPayloadPresent" to !acousticToken.isNullOrBlank()
                             )
                         )
                     }
                     "stopBroadcast" -> {
-                        acousticTransmitter.stop()
-                        bleAdvertiser.stop()
-                        latestAcousticToken = null
-                        latestBleNonce = null
+                        AttendanceBroadcastService.stop(this)
                         result.success(null)
                     }
                     "getLatestBroadcast" -> {
-                        val payload = mapOf(
-                            "acousticToken" to latestAcousticToken,
-                            "bleNonce" to latestBleNonce,
-                            "bleStatus" to bleAdvertiser.latestStatus()
-                        )
-                        result.success(payload)
+                        result.success(AttendanceBroadcastService.snapshot())
                     }
                     "ensureBleScanReady" -> {
                         val status = ensureBleScanReady()
@@ -124,27 +117,43 @@ class MainActivity : FlutterActivity() {
                             )
                             return@setMethodCallHandler
                         }
-                        val decodedToken = acousticFrameDecoder.decodeFromMic()
-                        val now = Instant.now().toString()
-                        val source = if (!decodedToken.isNullOrBlank()) {
-                            "microphone_decode"
-                        } else {
-                            "microphone_no_decode"
+                        if (!acousticScanInProgress.compareAndSet(false, true)) {
+                            result.success(
+                                mapOf(
+                                    "acousticToken" to "",
+                                    "bleNonce" to null,
+                                    "observedAt" to Instant.now().toString(),
+                                    "source" to "microphone_scan_busy",
+                                    "diagnostic" to "An acoustic scan is already running."
+                                )
+                            )
+                            return@setMethodCallHandler
                         }
-                        val diagnostic = acousticFrameDecoder.lastDiagnostics
-                        if (!decodedToken.isNullOrBlank()) {
-                            Log.i(logTag, "Acoustic decode success: $diagnostic")
-                        } else {
-                            Log.w(logTag, "Acoustic decode failed: $diagnostic")
+                        acousticExecutor.execute {
+                            val decodedToken = acousticFrameDecoder.decodeFromMic()
+                            val diagnostic = acousticFrameDecoder.lastDiagnostics
+                            val source = if (!decodedToken.isNullOrBlank()) {
+                                "microphone_decode"
+                            } else {
+                                "microphone_no_decode"
+                            }
+                            if (!decodedToken.isNullOrBlank()) {
+                                Log.i(logTag, "Acoustic decode success: $diagnostic")
+                            } else {
+                                Log.w(logTag, "Acoustic decode failed: $diagnostic")
+                            }
+                            val payload = mapOf(
+                                "acousticToken" to (decodedToken ?: ""),
+                                "bleNonce" to AttendanceBroadcastService.snapshot()["bleNonce"],
+                                "observedAt" to Instant.now().toString(),
+                                "source" to source,
+                                "diagnostic" to diagnostic
+                            )
+                            acousticScanInProgress.set(false)
+                            runOnUiThread {
+                                result.success(payload)
+                            }
                         }
-                        val payload = mapOf(
-                            "acousticToken" to (decodedToken ?: ""),
-                            "bleNonce" to latestBleNonce,
-                            "observedAt" to now,
-                            "source" to source,
-                            "diagnostic" to diagnostic
-                        )
-                        result.success(payload)
                     }
                     else -> result.notImplemented()
                 }
@@ -152,8 +161,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        acousticTransmitter.stop()
-        bleAdvertiser.stop()
+        acousticExecutor.shutdownNow()
         super.onDestroy()
     }
 

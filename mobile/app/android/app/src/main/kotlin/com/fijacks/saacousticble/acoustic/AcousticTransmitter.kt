@@ -1,7 +1,7 @@
 package com.fijacks.saacousticble.acoustic
 
 import android.media.AudioFormat
-import android.media.AudioManager
+import android.media.AudioAttributes
 import android.media.AudioTrack
 
 class AcousticTransmitter {
@@ -17,15 +17,29 @@ class AcousticTransmitter {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        audioTrack = AudioTrack(
-            AudioManager.STREAM_MUSIC,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minSize, frame.size * 2),
-            AudioTrack.MODE_STATIC
-        ).apply {
-            write(frame, 0, frame.size)
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(maxOf(minSize, frame.size * 2))
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+        val written = track.write(frame, 0, frame.size)
+        if (written != frame.size) {
+            track.release()
+            throw IllegalStateException("Could not load the complete acoustic frame.")
+        }
+        audioTrack = track.apply {
             setLoopPoints(0, frame.size, -1)
             play()
         }
@@ -40,6 +54,7 @@ class AcousticTransmitter {
             release()
         }
         audioTrack = null
+        latestPayload = null
     }
 
     fun getLatestPayload(): String? = latestPayload

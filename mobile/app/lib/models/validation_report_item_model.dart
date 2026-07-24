@@ -13,11 +13,6 @@ class ValidationReportItemModel {
     this.courseTitle,
     this.lecturerName,
     this.room,
-    this.faceVerificationStatus,
-    this.attendanceFaceImageBase64,
-    this.enrolledFaceImageBase64,
-    this.faceMatchScore,
-    this.wifiClientIp,
     this.beaconProof,
   });
 
@@ -34,11 +29,6 @@ class ValidationReportItemModel {
   final String? courseTitle;
   final String? lecturerName;
   final String? room;
-  final String? faceVerificationStatus;
-  final String? attendanceFaceImageBase64;
-  final String? enrolledFaceImageBase64;
-  final double? faceMatchScore;
-  final String? wifiClientIp;
   final String? beaconProof;
 
   factory ValidationReportItemModel.fromJson(Map<String, dynamic> json) {
@@ -51,12 +41,6 @@ class ValidationReportItemModel {
       courseTitle: json['course_title']?.toString(),
       lecturerName: json['lecturer_name']?.toString(),
       room: json['room']?.toString(),
-      faceVerificationStatus: json['face_verification_status']?.toString(),
-      attendanceFaceImageBase64:
-          json['attendance_face_image_base64']?.toString(),
-      enrolledFaceImageBase64: json['enrolled_face_image_base64']?.toString(),
-      faceMatchScore: (json['face_match_score'] as num?)?.toDouble(),
-      wifiClientIp: json['wifi_client_ip']?.toString(),
       beaconProof: json['beacon_proof']?.toString(),
       status: json['status']?.toString() ?? 'fail',
       passedChecks: (json['passed_checks'] as List<dynamic>? ?? [])

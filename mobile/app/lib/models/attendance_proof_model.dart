@@ -11,8 +11,6 @@ class AttendanceProofModel {
     required this.deviceId,
     required this.acousticToken,
     required this.bleNonce,
-    this.wifiProof = '',
-    this.wifiClientIp,
     this.beaconProof = '',
     this.beaconType,
     this.beaconUuid,
@@ -24,9 +22,6 @@ class AttendanceProofModel {
     required this.rssi,
     required this.observedAt,
     required this.signature,
-    this.attendanceFaceImageBase64,
-    this.faceVerificationStatus,
-    this.faceMatchScore,
     this.deviceTrustStatus,
     this.deviceTrustDetail,
   });
@@ -42,8 +37,6 @@ class AttendanceProofModel {
   final String deviceId;
   final String acousticToken;
   final String bleNonce;
-  final String wifiProof;
-  final String? wifiClientIp;
   final String beaconProof;
   final String? beaconType;
   final String? beaconUuid;
@@ -55,9 +48,6 @@ class AttendanceProofModel {
   final int rssi;
   final DateTime observedAt;
   final String signature;
-  final String? attendanceFaceImageBase64;
-  final String? faceVerificationStatus;
-  final double? faceMatchScore;
   final String? deviceTrustStatus;
   final String? deviceTrustDetail;
 
@@ -68,7 +58,6 @@ class AttendanceProofModel {
       'device_id': deviceId,
       'acoustic_token': acousticToken,
       'ble_nonce': bleNonce,
-      'wifi_proof': wifiProof,
       'beacon_proof': beaconProof,
       'rssi': rssi,
       'observed_at': observedAt.toUtc().toIso8601String(),
@@ -76,15 +65,6 @@ class AttendanceProofModel {
     };
     if (beaconRssi != null) {
       json['beacon_rssi'] = beaconRssi;
-    }
-    if ((attendanceFaceImageBase64 ?? '').trim().isNotEmpty) {
-      json['attendance_face_image_base64'] = attendanceFaceImageBase64!.trim();
-    }
-    if ((faceVerificationStatus ?? '').trim().isNotEmpty) {
-      json['face_verification_status'] = faceVerificationStatus!.trim();
-    }
-    if (faceMatchScore != null) {
-      json['face_match_score'] = faceMatchScore;
     }
     return json;
   }
@@ -102,8 +82,6 @@ class AttendanceProofModel {
       deviceId: json['device_id'] as String? ?? '',
       acousticToken: json['acoustic_token'] as String? ?? '',
       bleNonce: json['ble_nonce'] as String? ?? '',
-      wifiProof: json['wifi_proof'] as String? ?? '',
-      wifiClientIp: json['wifi_client_ip'] as String?,
       beaconProof: json['beacon_proof'] as String? ?? '',
       beaconType: json['beacon_type'] as String?,
       beaconUuid: json['beacon_uuid'] as String?,
@@ -115,10 +93,6 @@ class AttendanceProofModel {
       rssi: json['rssi'] as int? ?? 0,
       observedAt: DateTime.parse(json['observed_at'] as String),
       signature: json['signature'] as String? ?? '',
-      attendanceFaceImageBase64:
-          json['attendance_face_image_base64'] as String?,
-      faceVerificationStatus: json['face_verification_status'] as String?,
-      faceMatchScore: (json['face_match_score'] as num?)?.toDouble(),
       deviceTrustStatus: json['device_trust_status'] as String?,
       deviceTrustDetail: json['device_trust_detail'] as String?,
     );

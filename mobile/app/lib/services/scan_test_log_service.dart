@@ -11,10 +11,18 @@ class ScanTestLogService {
   Future<List<ScanTestLogModel>> loadLogs() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_keyLogs) ?? <String>[];
-    return raw
-        .map((item) => jsonDecode(item) as Map<String, dynamic>)
-        .map(ScanTestLogModel.fromJson)
-        .toList();
+    final logs = <ScanTestLogModel>[];
+    for (final item in raw) {
+      try {
+        final decoded = jsonDecode(item);
+        if (decoded is Map<String, dynamic>) {
+          logs.add(ScanTestLogModel.fromJson(decoded));
+        }
+      } catch (_) {
+        // Ignore one damaged local diagnostic entry instead of blocking scan.
+      }
+    }
+    return logs;
   }
 
   Future<List<ScanTestLogModel>> addLog(ScanTestLogModel log) async {

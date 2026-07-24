@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -11,7 +10,6 @@ import 'package:share_plus/share_plus.dart';
 import 'core/session_store.dart';
 import 'core/api_config.dart';
 import 'core/error_messages.dart';
-import 'face/auto_face_capture_screen.dart';
 import 'models/attendance_proof_model.dart';
 import 'models/scan_result_model.dart';
 import 'models/scan_test_log_model.dart';
@@ -30,30 +28,19 @@ void main() {
   runApp(const SaAcousticBleApp());
 }
 
-Future<AutoFaceCaptureResult?> _captureFaceImage(
-  BuildContext context, {
-  required String title,
-  required String subtitle,
-}) async {
-  return Navigator.of(context).push<AutoFaceCaptureResult>(
-    MaterialPageRoute(
-      builder: (_) => AutoFaceCaptureScreen(
-        title: title,
-        subtitle: subtitle,
-      ),
-    ),
-  );
-}
-
 String _friendlyAcousticResult(ScanResultModel scan, bool trusted) {
   if (trusted) {
     return 'Acoustic signal captured.';
   }
   return switch (scan.source) {
-    'microphone_no_decode' => 'No acoustic signal was decoded. Move closer, reduce noise, and scan again.',
-    'platform_exception' => 'Microphone scan could not start. Check microphone permission.',
-    'missing_plugin' => 'Acoustic scanning is only available on the Android app.',
+    'microphone_no_decode' =>
+      'No acoustic signal was decoded. Move closer, reduce noise, and scan again.',
+    'platform_exception' =>
+      'Microphone scan could not start. Check microphone permission.',
+    'missing_plugin' =>
+      'Acoustic scanning is only available on the Android app.',
     'native_no_result' => 'The microphone did not return a scan result.',
+    'microphone_scan_busy' => 'An acoustic scan is already running.',
     'web_no_broadcast' => 'No web broadcast is active.',
     _ => 'Acoustic signal was not captured.',
   };
@@ -64,13 +51,20 @@ String _friendlyBleResult(ScanResultModel scan, bool trusted) {
     return 'BLE signal captured.';
   }
   return switch (scan.source) {
-    'ble_scan_not_ready' => 'Bluetooth permission is needed. Allow the prompt and scan again.',
-    'ble_adapter_not_ready' => 'Bluetooth is off. Turn it on on both phones and scan again.',
-    'ble_scan_empty' => 'No nearby BLE broadcast was found. Confirm the lecturer broadcast is running.',
-    'ble_scan_unparsed_device' => 'BLE saw nearby devices, but not the lecturer broadcast yet.',
-    'ble_scan_error' => 'BLE scan could not start. Check Bluetooth permissions and try again.',
-    'ble_scan_beacon_eddystone_uid' => 'Lecturer BLE was not used; room beacon was captured.',
-    'ble_scan_beacon_ibeacon' => 'Lecturer BLE was not used; room beacon was captured.',
+    'ble_scan_not_ready' =>
+      'Bluetooth permission is needed. Allow the prompt and scan again.',
+    'ble_adapter_not_ready' =>
+      'Bluetooth is off. Turn it on on both phones and scan again.',
+    'ble_scan_empty' =>
+      'No nearby BLE broadcast was found. Confirm the lecturer broadcast is running.',
+    'ble_scan_unparsed_device' =>
+      'BLE saw nearby devices, but not the lecturer broadcast yet.',
+    'ble_scan_error' =>
+      'BLE scan could not start. Check Bluetooth permissions and try again.',
+    'ble_scan_beacon_eddystone_uid' =>
+      'Lecturer BLE was not used; room beacon was captured.',
+    'ble_scan_beacon_ibeacon' =>
+      'Lecturer BLE was not used; room beacon was captured.',
     'web_no_ble' => 'Real BLE scanning is only available on Android.',
     _ => 'Lecturer BLE signal was not captured.',
   };
@@ -81,8 +75,10 @@ String _friendlyBeaconResult(ScanResultModel scan, bool trusted) {
     return 'Registered beacon signal captured.';
   }
   return switch (scan.source) {
-    'ble_scan_beacon_eddystone_uid' => 'Beacon was detected but is not ready for submission.',
-    'ble_scan_beacon_ibeacon' => 'Beacon was detected but is not ready for submission.',
+    'ble_scan_beacon_eddystone_uid' =>
+      'Beacon was detected but is not ready for submission.',
+    'ble_scan_beacon_ibeacon' =>
+      'Beacon was detected but is not ready for submission.',
     _ => 'No registered BLE beacon was captured.',
   };
 }
@@ -90,17 +86,14 @@ String _friendlyBeaconResult(ScanResultModel scan, bool trusted) {
 String _proofScanModeLabel({
   required String acousticToken,
   required String bleNonce,
-  String wifiProof = '',
   String beaconProof = '',
 }) {
   final hasAcoustic = acousticToken.trim().isNotEmpty;
   final hasBle = bleNonce.trim().isNotEmpty;
-  final hasWifi = wifiProof.trim().isNotEmpty;
   final hasBeacon = beaconProof.trim().isNotEmpty;
   final modes = <String>[
     if (hasAcoustic) 'Acoustic',
     if (hasBle) 'BLE',
-    if (hasWifi) 'Wi-Fi',
     if (hasBeacon) 'BLE Beacon',
   ];
   if (modes.isNotEmpty) {
@@ -109,10 +102,7 @@ String _proofScanModeLabel({
   return 'Unknown';
 }
 
-String _permissionPromptMessage(
-  Object? missing, {
-  required String fallback,
-}) {
+String _permissionPromptMessage(Object? missing, {required String fallback}) {
   final values = (missing is List ? missing : const [])
       .map((item) => item.toString())
       .toSet();
@@ -180,12 +170,9 @@ class SaAcousticBleApp extends StatelessWidget {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: _AppPalette.teal,
       brightness: Brightness.light,
-    ).copyWith(
-      primary: _AppPalette.teal,
-      surface: _AppPalette.surface,
-    );
+    ).copyWith(primary: _AppPalette.teal, surface: _AppPalette.surface);
     return MaterialApp(
-      title: 'SA Acoustic BLE',
+      title: 'Smart Attendance',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: colorScheme,
@@ -193,10 +180,10 @@ class SaAcousticBleApp extends StatelessWidget {
         scaffoldBackgroundColor: _AppPalette.canvas,
         fontFamily: 'Roboto',
         textTheme: ThemeData.light().textTheme.apply(
-              bodyColor: _AppPalette.ink,
-              displayColor: _AppPalette.ink,
-              fontFamily: 'Roboto',
-            ),
+          bodyColor: _AppPalette.ink,
+          displayColor: _AppPalette.ink,
+          fontFamily: 'Roboto',
+        ),
         dividerTheme: DividerThemeData(
           color: _AppPalette.line.withOpacity(0.75),
           thickness: 1,
@@ -238,7 +225,10 @@ class SaAcousticBleApp extends StatelessWidget {
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: _AppPalette.surface,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 15,
+            vertical: 15,
+          ),
           labelStyle: const TextStyle(
             color: _AppPalette.muted,
             fontWeight: FontWeight.w600,
@@ -385,8 +375,6 @@ class _AuthScreenState extends State<AuthScreen> {
   final _regMatricController = TextEditingController();
   final _regPasswordController = TextEditingController();
   String _role = 'student';
-  String? _registrationFaceBase64;
-  final bool _capturingRegistrationFace = false;
 
   bool _loading = false;
 
@@ -425,9 +413,9 @@ class _AuthScreenState extends State<AuthScreen> {
         error,
         fallback: 'Login failed. Please check your details and try again.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -447,8 +435,12 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await _auth.register(
         fullName: _regNameController.text.trim(),
-        matricNumber: _role == 'student' ? _regMatricController.text.trim() : null,
-        username: _role == 'lecturer' ? _regUsernameController.text.trim() : null,
+        matricNumber: _role == 'student'
+            ? _regMatricController.text.trim()
+            : null,
+        username: _role == 'lecturer'
+            ? _regUsernameController.text.trim()
+            : null,
         role: _role,
         password: _regPasswordController.text,
       );
@@ -464,9 +456,9 @@ class _AuthScreenState extends State<AuthScreen> {
         error,
         fallback: 'Registration failed. Please check the form and try again.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -484,7 +476,7 @@ class _AuthScreenState extends State<AuthScreen> {
         appBar: AppBar(
           toolbarHeight: 0,
           bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(54),
+            preferredSize: const Size.fromHeight(66),
             child: Container(
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               decoration: BoxDecoration(
@@ -546,7 +538,7 @@ class _AuthScreenState extends State<AuthScreen> {
             _AuthPane(
               title: 'Create Account',
               subtitle:
-                  'Register as a student or lecturer to join the attendance system securely.',
+                  'Register with your student matric number or lecturer username.',
               icon: Icons.app_registration_outlined,
               child: Form(
                 key: _registerForm,
@@ -554,17 +546,24 @@ class _AuthScreenState extends State<AuthScreen> {
                   children: [
                     _buildRequiredField(_regNameController, 'Full Name'),
                     if (_role == 'student')
-                      _buildRequiredField(_regMatricController, 'Matric Number'),
+                      _buildRequiredField(
+                        _regMatricController,
+                        'Matric Number',
+                      ),
                     if (_role == 'lecturer')
                       _buildRequiredField(_regUsernameController, 'Username'),
                     DropdownButtonFormField<String>(
                       initialValue: _role,
-                      decoration: const InputDecoration(
-                        labelText: 'Role',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Role'),
                       items: const [
-                        DropdownMenuItem(value: 'student', child: Text('Student')),
-                        DropdownMenuItem(value: 'lecturer', child: Text('Lecturer')),
+                        DropdownMenuItem(
+                          value: 'student',
+                          child: Text('Student'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'lecturer',
+                          child: Text('Lecturer'),
+                        ),
                       ],
                       onChanged: (value) {
                         if (value == null) {
@@ -580,6 +579,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       _regPasswordController,
                       'Password',
                       obscure: true,
+                      minLength: 8,
                     ),
                     const SizedBox(height: 8),
                     SizedBox(
@@ -592,55 +592,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   ],
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class RoleSelectionScreen extends StatelessWidget {
-  const RoleSelectionScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('SA Acoustic BLE')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Select Role',
-              style: Theme.of(context).textTheme.headlineSmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => StudentShell(onLogout: () async {}),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.person),
-              label: const Text('Student'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => LecturerShell(onLogout: () async {}),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.school),
-              label: const Text('Lecturer'),
             ),
           ],
         ),
@@ -679,11 +630,11 @@ class _StudentShellState extends State<StudentShell> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Capture a verified room signal, submit once, and track your attendance cleanly.',
+                'Scan the classroom signal and review your attendance records.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _AppPalette.muted,
-                      height: 1.25,
-                    ),
+                  color: _AppPalette.muted,
+                  height: 1.25,
+                ),
               ),
             ),
           ),
@@ -695,7 +646,15 @@ class _StudentShellState extends State<StudentShell> {
           ),
         ],
       ),
-      body: _pages[_currentIndex],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: SizedBox(
+            width: double.infinity,
+            child: IndexedStack(index: _currentIndex, children: _pages),
+          ),
+        ),
+      ),
       bottomNavigationBar: NavigationBar(
         elevation: 0,
         selectedIndex: _currentIndex,
@@ -710,7 +669,10 @@ class _StudentShellState extends State<StudentShell> {
             label: 'Scan',
           ),
           NavigationDestination(icon: Icon(Icons.history), label: 'History'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
         ],
       ),
     );
@@ -755,11 +717,11 @@ class _LecturerShellState extends State<LecturerShell> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Create live sessions, broadcast proximity signals, and export attendance records.',
+                'Manage class sessions, live attendance, and reports.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _AppPalette.muted,
-                      height: 1.25,
-                    ),
+                  color: _AppPalette.muted,
+                  height: 1.25,
+                ),
               ),
             ),
           ),
@@ -771,13 +733,21 @@ class _LecturerShellState extends State<LecturerShell> {
           ),
         ],
       ),
-      body: _currentIndex == 1
-          ? LecturerLivePage(onLoadSession: _loadSession)
-          : _currentIndex == 0
-              ? _pages[0]
-              : _currentIndex == 2
-                  ? _pages[1]
-                  : _pages[2],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: SizedBox(
+            width: double.infinity,
+            child: _currentIndex == 1
+                ? LecturerLivePage(onLoadSession: _loadSession)
+                : _currentIndex == 0
+                ? _pages[0]
+                : _currentIndex == 2
+                ? _pages[1]
+                : _pages[2],
+          ),
+        ),
+      ),
       bottomNavigationBar: NavigationBar(
         elevation: 0,
         selectedIndex: _currentIndex,
@@ -799,10 +769,7 @@ class _LecturerShellState extends State<LecturerShell> {
             icon: Icon(Icons.analytics_outlined),
             label: 'Reports',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            label: 'Me',
-          ),
+          NavigationDestination(icon: Icon(Icons.person_outline), label: 'Me'),
         ],
       ),
     );
@@ -826,9 +793,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
   final _acousticTokenController = TextEditingController();
   final _bleNonceController = TextEditingController();
   final _bleEvidenceController = TextEditingController();
-  final _wifiProofController = TextEditingController();
   final _beaconProofController = TextEditingController();
-  final _rssiController = TextEditingController(text: '-60');
+  final _rssiController = TextEditingController(text: '0');
 
   bool _submitting = false;
   bool _scanning = false;
@@ -868,7 +834,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
     _acousticTokenController.dispose();
     _bleNonceController.dispose();
     _bleEvidenceController.dispose();
-    _wifiProofController.dispose();
     _beaconProofController.dispose();
     _rssiController.dispose();
     super.dispose();
@@ -877,11 +842,12 @@ class _StudentScanPageState extends State<StudentScanPage> {
   Future<void> _initAutoFields() async {
     final id = await SessionStore.ensureDeviceId();
     final logs = await _scanLogService.loadLogs();
-    final existingProofs = await _api.listProofs(
-      studentId: SessionStore.currentIdentity().isEmpty
-          ? null
-          : SessionStore.currentIdentity(),
-    );
+    var existingProofs = <AttendanceProofModel>[];
+    try {
+      existingProofs = await _api.listProofs();
+    } catch (_) {
+      // The backend remains the final duplicate guard if startup is offline.
+    }
     if (!mounted) {
       return;
     }
@@ -915,13 +881,13 @@ class _StudentScanPageState extends State<StudentScanPage> {
     final rssi = int.tryParse(_rssiController.text.trim());
     final sessionId = _decodedSessionId;
     if (sessionId == null || rssi == null) {
-      _showFeedback('Run scan first to decode session and RSSI.');
+      _showFeedback('Run a signal scan before submitting attendance.');
       return;
     }
     if (!_scanEligibleForSubmit) {
       setState(() {
         _statusMessage =
-            'No valid acoustic, BLE, beacon, or Wi-Fi/LAN attendance path is ready yet.';
+            'No valid acoustic, lecturer BLE, or room beacon proof is ready yet.';
       });
       _showFeedback('No valid attendance path is ready yet. Run a fresh scan.');
       return;
@@ -934,9 +900,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
       _showFeedback('Attendance has already been submitted for this session.');
       return;
     }
-    final hasSignalData = _acousticTokenController.text.trim().isNotEmpty ||
+    final hasSignalData =
+        _acousticTokenController.text.trim().isNotEmpty ||
         _bleNonceController.text.trim().isNotEmpty ||
-        _wifiProofController.text.trim().isNotEmpty ||
         _beaconProofController.text.trim().isNotEmpty;
     if (!hasSignalData) {
       setState(() {
@@ -961,7 +927,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
       deviceId: deviceId,
       acousticToken: _acousticTokenController.text.trim(),
       bleNonce: _bleNonceController.text.trim(),
-      wifiProof: _wifiProofController.text.trim(),
       beaconProof: _beaconProofController.text.trim(),
       rssi: rssi,
       observedAt: observedAt,
@@ -979,7 +944,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
         deviceId: deviceId,
         acousticToken: _acousticTokenController.text.trim(),
         bleNonce: _bleNonceController.text.trim(),
-        wifiProof: _wifiProofController.text.trim(),
         beaconProof: _beaconProofController.text.trim(),
         beaconRssi: _beaconProofController.text.trim().isEmpty ? null : rssi,
         rssi: rssi,
@@ -1047,7 +1011,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
     required String deviceId,
     required String acousticToken,
     required String bleNonce,
-    required String wifiProof,
     required String beaconProof,
     required int rssi,
     required DateTime observedAt,
@@ -1058,7 +1021,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
       deviceId,
       acousticToken,
       bleNonce,
-      wifiProof,
+      '',
       beaconProof,
       rssi,
       observedAt.toIso8601String(),
@@ -1096,19 +1059,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
     return 'Untrusted scan: no valid attendance path was confirmed';
   }
 
-  bool _isTrustedAcousticSignal(
-    ScanResultModel scan,
-    dynamic acousticDecoded,
-  ) {
+  bool _isTrustedAcousticSignal(ScanResultModel scan, dynamic acousticDecoded) {
     return acousticDecoded != null &&
         scan.acousticToken.trim().isNotEmpty &&
-        (scan.source == 'microphone_decode' || scan.source == 'web_broadcast_cache');
+        (scan.source == 'microphone_decode' ||
+            scan.source == 'web_broadcast_cache');
   }
 
-  bool _isTrustedBleSignal(
-    ScanResultModel scan,
-    dynamic bleDecoded,
-  ) {
+  bool _isTrustedBleSignal(ScanResultModel scan, dynamic bleDecoded) {
     return bleDecoded != null &&
         (scan.bleNonce?.trim().isNotEmpty ?? false) &&
         (scan.source == 'ble_scan_token' ||
@@ -1186,13 +1144,20 @@ class _StudentScanPageState extends State<StudentScanPage> {
       _lastSubmittedProof = null;
     });
     try {
-      final acoustic = await _acoustic.startAcousticScan();
-      final ble = await _ble.scanForNonce();
+      final scans = await Future.wait<ScanResultModel>([
+        _acoustic.startAcousticScan(),
+        _ble.scanForNonce(),
+      ]);
+      final acoustic = scans[0];
+      final ble = scans[1];
       final acousticDecoded = SignalPayloadCodec.parseAcousticToken(
         acoustic.acousticToken,
       );
       final bleDecoded = SignalPayloadCodec.parseBleNonce(ble.bleNonce ?? '');
-      final acousticTrusted = _isTrustedAcousticSignal(acoustic, acousticDecoded);
+      final acousticTrusted = _isTrustedAcousticSignal(
+        acoustic,
+        acousticDecoded,
+      );
       final bleTrusted = _isTrustedBleSignal(ble, bleDecoded);
       final beaconTrusted = _isTrustedBeaconSignal(ble);
       var beaconAccepted = beaconTrusted;
@@ -1238,7 +1203,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
             passed.add('Room proximity evidence accepted from BLE beacon');
           } else {
             beaconAccepted = false;
-            failed.add('No open session could be resolved from the room beacon.');
+            failed.add(
+              'No open session could be resolved from the room beacon.',
+            );
           }
         } catch (error) {
           beaconAccepted = false;
@@ -1293,8 +1260,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
         ages.add(SignalPayloadCodec.signalAgeSeconds(bleDecoded.issuedAt));
       }
       final beaconOnlyFreshness = ages.isEmpty && beaconAccepted;
-      final maxAge =
-          ages.isEmpty ? (beaconAccepted ? 0 : null) : ages.reduce((a, b) => a > b ? a : b);
+      final maxAge = ages.isEmpty
+          ? (beaconAccepted ? 0 : null)
+          : ages.reduce((a, b) => a > b ? a : b);
       final freshnessPassed =
           maxAge != null &&
           maxAge >= 0 &&
@@ -1317,13 +1285,22 @@ class _StudentScanPageState extends State<StudentScanPage> {
           freshnessPassed) {
         proofMode = 'acoustic_ble_beacon';
         passed.add('Proof path ready: acoustic_ble_beacon');
-      } else if (acousticTrusted && bleTrusted && sessionConsistent && freshnessPassed) {
+      } else if (acousticTrusted &&
+          bleTrusted &&
+          sessionConsistent &&
+          freshnessPassed) {
         proofMode = 'dual_signal';
         passed.add('Proof path ready: dual_signal');
-      } else if (bleTrusted && beaconAccepted && sessionConsistent && freshnessPassed) {
+      } else if (bleTrusted &&
+          beaconAccepted &&
+          sessionConsistent &&
+          freshnessPassed) {
         proofMode = 'lecturer_ble_beacon';
         passed.add('Proof path ready: lecturer_ble_beacon');
-      } else if (acousticTrusted && beaconAccepted && sessionConsistent && freshnessPassed) {
+      } else if (acousticTrusted &&
+          beaconAccepted &&
+          sessionConsistent &&
+          freshnessPassed) {
         proofMode = 'acoustic_beacon';
         passed.add('Proof path ready: acoustic_beacon');
       } else if (acousticTrusted && sessionConsistent && freshnessPassed) {
@@ -1342,7 +1319,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
         proofMode = null;
       }
 
-      if (decodedSession != null && _submittedSessionIds.contains(decodedSession)) {
+      if (decodedSession != null &&
+          _submittedSessionIds.contains(decodedSession)) {
         proofMode = null;
         failed.add('Attendance has already been submitted for this session');
       }
@@ -1368,6 +1346,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
         sessionConsistent: sessionConsistent,
         freshnessPassed: freshnessPassed,
       );
+      final proofRssi = (bleTrusted || beaconAccepted) ? (ble.rssi ?? 0) : 0;
       final savedLogs = await _scanLogService.addLog(
         ScanTestLogModel(
           recordedAt: DateTime.now().toUtc(),
@@ -1390,9 +1369,10 @@ class _StudentScanPageState extends State<StudentScanPage> {
           lecturerBleTrusted: bleTrusted,
           beaconTrusted: beaconAccepted,
         );
-        _wifiProofController.clear();
-        _beaconProofController.text = beaconAccepted ? (ble.beaconProof ?? '') : '';
-        _rssiController.text = '${ble.rssi ?? -60}';
+        _beaconProofController.text = beaconAccepted
+            ? (ble.beaconProof ?? '')
+            : '';
+        _rssiController.text = '$proofRssi';
         _decodedSessionId = decodedSession;
         _scannedSession = scanSession;
         _signalAgeSeconds = maxAge;
@@ -1425,9 +1405,9 @@ class _StudentScanPageState extends State<StudentScanPage> {
         error,
         fallback: 'Signal scan could not be completed. Please try again.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       setState(() {
         _failedChecks = [message];
         _passedChecks = [];
@@ -1437,110 +1417,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
         _scanEligibleForSubmit = false;
         _statusMessage = message;
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _scanning = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _runWifiVerification() async {
-    setState(() {
-      _scanning = true;
-      _statusMessage = null;
-      _lastSubmittedProof = null;
-    });
-    try {
-      final sessions = await _api.listSessions();
-      final activeSessions =
-          sessions
-              .where(
-                (session) =>
-                    session.active &&
-                    session.attendanceOpen &&
-                    session.id != null,
-              )
-              .toList();
-      if (activeSessions.isEmpty) {
-        throw Exception('No open attendance session is available for Wi-Fi/LAN verification.');
-      }
-      activeSessions.sort((a, b) => b.startsAt.compareTo(a.startsAt));
-      final session = activeSessions.first;
-      final sessionId = session.id!;
-      if (_submittedSessionIds.contains(sessionId)) {
-        throw Exception('Attendance has already been submitted for this session.');
-      }
-      final issuedAt = DateTime.now().toUtc();
-      final epochSeconds = issuedAt.millisecondsSinceEpoch ~/ 1000;
-      final wifiProof = 'wifi|$sessionId|$epochSeconds';
-      final savedLogs = await _scanLogService.addLog(
-        ScanTestLogModel(
-          recordedAt: issuedAt,
-          trustSummary: 'Trusted Wi-Fi/LAN verification',
-          acousticSource: 'not_used',
-          bleSource: 'not_used',
-          acousticDiagnostic: '',
-          bleDiagnostic: '',
-          decodedSessionId: sessionId,
-          signalAgeSeconds: 0,
-          rssi: null,
-          passedChecks: const [
-            'Wi-Fi/LAN proof generated',
-            'Session selected from active backend sessions',
-            'Proof path ready: wifi_lan',
-          ],
-          failedChecks: const [],
-        ),
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _acousticTokenController.clear();
-        _bleNonceController.clear();
-        _bleEvidenceController.clear();
-        _wifiProofController.text = wifiProof;
-        _beaconProofController.clear();
-        _rssiController.text = '0';
-        _decodedSessionId = sessionId;
-        _scannedSession = session;
-        _signalAgeSeconds = 0;
-        _passedChecks = const [
-          'Wi-Fi/LAN proof generated',
-          'Session selected from active backend sessions',
-          'Proof path ready: wifi_lan',
-        ];
-        _failedChecks = [];
-        _scanEligibleForSubmit = true;
-        _scanLogs = savedLogs;
-        _statusMessage = [
-          'Trusted Wi-Fi/LAN verification',
-          'Proof path: wifi_lan',
-          'Session: ${session.courseCode} - ${session.courseTitle}',
-          'Room: ${session.room}',
-        ].join('\n');
-      });
-      _showFeedback('Wi-Fi/LAN verification is ready. Submit proof now.');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      final message = friendlyErrorMessage(
-        error,
-        fallback: 'Wi-Fi/LAN verification could not be completed.',
-      );
-      setState(() {
-        _failedChecks = [message];
-        _passedChecks = [];
-        _decodedSessionId = null;
-        _scannedSession = null;
-        _signalAgeSeconds = null;
-        _scanEligibleForSubmit = false;
-        _statusMessage = message;
-      });
-      _showFeedback(message);
     } finally {
       if (mounted) {
         setState(() {
@@ -1551,14 +1427,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
   }
 
   bool get _hasSubmittedCurrentSession =>
-      _decodedSessionId != null && _submittedSessionIds.contains(_decodedSessionId);
+      _decodedSessionId != null &&
+      _submittedSessionIds.contains(_decodedSessionId);
 
   String get _currentSignalMode => _proofScanModeLabel(
-        acousticToken: _acousticTokenController.text,
-        bleNonce: _bleNonceController.text,
-        wifiProof: _wifiProofController.text,
-        beaconProof: _beaconProofController.text,
-      );
+    acousticToken: _acousticTokenController.text,
+    bleNonce: _bleNonceController.text,
+    beaconProof: _beaconProofController.text,
+  );
 
   _ChipTone get _attendanceTone {
     if (_lastSubmittedProof != null || _hasSubmittedCurrentSession) {
@@ -1623,7 +1499,8 @@ class _StudentScanPageState extends State<StudentScanPage> {
 
   @override
   Widget build(BuildContext context) {
-    final submitted = _lastSubmittedProof != null || _hasSubmittedCurrentSession;
+    final submitted =
+        _lastSubmittedProof != null || _hasSubmittedCurrentSession;
     final canScan = !_scanning && !_submitting && !submitted;
     final canSubmit = _scanEligibleForSubmit && !_submitting && !submitted;
     final hasScanDetails = _passedChecks.isNotEmpty || _failedChecks.isNotEmpty;
@@ -1652,9 +1529,6 @@ class _StudentScanPageState extends State<StudentScanPage> {
               submitted: submitted,
               readyToSubmit: _scanEligibleForSubmit,
               onScan: canScan ? _runSignalScan : null,
-              onWifi: (!_scanning && !_submitting && !submitted)
-                  ? _runWifiVerification
-                  : null,
               onSubmit: canSubmit ? _submitProof : null,
             ),
             const SizedBox(height: 16),
@@ -1689,15 +1563,14 @@ class _StudentScanPageState extends State<StudentScanPage> {
                 tone: _scanEligibleForSubmit
                     ? _ChipTone.success
                     : _failedChecks.isNotEmpty
-                        ? _ChipTone.danger
-                        : _ChipTone.neutral,
+                    ? _ChipTone.danger
+                    : _ChipTone.neutral,
               ),
             ],
             const SizedBox(height: 12),
             _StudentTechnicalDetails(
               acousticTokenController: _acousticTokenController,
               bleEvidenceController: _bleEvidenceController,
-              wifiProofController: _wifiProofController,
               beaconProofController: _beaconProofController,
               rssiController: _rssiController,
             ),
@@ -1714,7 +1587,7 @@ class _StudentScanPageState extends State<StudentScanPage> {
               icon: Icons.lightbulb_outline,
               title: 'Best scan position',
               message:
-                  'Stay inside the class, keep Bluetooth and Location enabled, and place the phone where it can receive the room beacon or lecturer broadcast clearly.',
+                  'Remain in the classroom with Bluetooth and Location enabled, then keep the phone unobstructed during the scan.',
               tone: _ChipTone.neutral,
             ),
           ],
@@ -1784,7 +1657,8 @@ class _StudentAttendanceHero extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
                             color: _AppPalette.ink,
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.4,
@@ -1794,9 +1668,9 @@ class _StudentAttendanceHero extends StatelessWidget {
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: _AppPalette.muted,
-                            height: 1.45,
-                          ),
+                        color: _AppPalette.muted,
+                        height: 1.45,
+                      ),
                     ),
                   ],
                 ),
@@ -1808,8 +1682,16 @@ class _StudentAttendanceHero extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _GlassPill(icon: Icons.badge_outlined, label: identity, color: accent),
-              _GlassPill(icon: Icons.phone_android_outlined, label: device, color: accent),
+              _GlassPill(
+                icon: Icons.badge_outlined,
+                label: identity,
+                color: accent,
+              ),
+              _GlassPill(
+                icon: Icons.phone_android_outlined,
+                label: device,
+                color: accent,
+              ),
               _GlassPill(
                 icon: Icons.verified_user_outlined,
                 label: 'One submission only',
@@ -1869,7 +1751,6 @@ class _StudentScanActionCard extends StatelessWidget {
     required this.submitted,
     required this.readyToSubmit,
     required this.onScan,
-    required this.onWifi,
     required this.onSubmit,
   });
 
@@ -1878,7 +1759,6 @@ class _StudentScanActionCard extends StatelessWidget {
   final bool submitted;
   final bool readyToSubmit;
   final VoidCallback? onScan;
-  final VoidCallback? onWifi;
   final VoidCallback? onSubmit;
 
   @override
@@ -1908,16 +1788,16 @@ class _StudentScanActionCard extends StatelessWidget {
                   child: Text(
                     'Capture classroom signal',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
                 _StatusChip(
                   label: submitted
                       ? 'Submitted'
                       : readyToSubmit
-                          ? 'Verified'
-                          : 'Awaiting scan',
+                      ? 'Verified'
+                      : 'Awaiting scan',
                   tone: submitted || readyToSubmit
                       ? _ChipTone.success
                       : _ChipTone.neutral,
@@ -1943,24 +1823,13 @@ class _StudentScanActionCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onWifi,
-                    icon: const Icon(Icons.wifi_outlined),
-                    label: const Text('Wi-Fi fallback'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: onSubmit,
-                    icon: const Icon(Icons.done_all_outlined),
-                    label: Text(submitting ? 'Submitting...' : 'Submit'),
-                  ),
-                ),
-              ],
+            SizedBox(
+              height: 50,
+              child: FilledButton.tonalIcon(
+                onPressed: onSubmit,
+                icon: const Icon(Icons.done_all_outlined),
+                label: Text(submitting ? 'Submitting...' : 'Submit attendance'),
+              ),
             ),
           ],
         ),
@@ -1991,15 +1860,18 @@ class _StudentSessionReceiptCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final tone = submitted || readyToSubmit ? _ChipTone.success : _ChipTone.neutral;
+    final tone = submitted || readyToSubmit
+        ? _ChipTone.success
+        : _ChipTone.neutral;
     final title = session == null
         ? 'No session captured yet'
         : session!.courseTitle.trim().isEmpty
-            ? session!.courseCode
-            : '${session!.courseCode} - ${session!.courseTitle}';
-    final signalAgeLabel =
-        signalAgeSeconds == null ? '-' : '${signalAgeSeconds}s';
-    final rssiLabel = rssi == null ? '-' : '$rssi';
+        ? session!.courseCode
+        : '${session!.courseCode} - ${session!.courseTitle}';
+    final signalAgeLabel = signalAgeSeconds == null
+        ? '-'
+        : '${signalAgeSeconds}s';
+    final rssiLabel = rssi == null || rssi == 0 ? 'N/A' : '$rssi dBm';
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -2015,10 +1887,11 @@ class _StudentSessionReceiptCard extends StatelessWidget {
                   width: 46,
                   height: 46,
                   decoration: BoxDecoration(
-                    color: (submitted || readyToSubmit
-                            ? Colors.green
-                            : colors.primary)
-                        .withOpacity(0.1),
+                    color:
+                        (submitted || readyToSubmit
+                                ? Colors.green
+                                : colors.primary)
+                            .withOpacity(0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Icon(
@@ -2037,20 +1910,19 @@ class _StudentSessionReceiptCard extends StatelessWidget {
                     children: [
                       Text(
                         title.isEmpty ? 'Session captured' : title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                            ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         submitted
                             ? 'Submission receipt is locked for this session.'
                             : readyToSubmit
-                                ? 'Ready to submit your attendance proof.'
-                                : 'Scan first to fill this attendance receipt.',
+                            ? 'Ready to submit your attendance proof.'
+                            : 'Scan first to fill this attendance receipt.',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: colors.onSurfaceVariant,
-                            ),
+                          color: colors.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -2059,8 +1931,8 @@ class _StudentSessionReceiptCard extends StatelessWidget {
                   label: submitted
                       ? 'Submitted'
                       : readyToSubmit
-                          ? 'Ready'
-                          : 'Waiting',
+                      ? 'Ready'
+                      : 'Waiting',
                   tone: tone,
                 ),
               ],
@@ -2076,10 +1948,7 @@ class _StudentSessionReceiptCard extends StatelessWidget {
                   label: 'Room',
                   value: session?.room.isNotEmpty == true ? session!.room : '-',
                 ),
-                _ProfileDetailItem(
-                  label: 'Signal mode',
-                  value: signalMode,
-                ),
+                _ProfileDetailItem(label: 'Signal mode', value: signalMode),
                 _ProfileDetailItem(
                   label: 'Signal age / RSSI',
                   value: '$signalAgeLabel / $rssiLabel',
@@ -2124,15 +1993,17 @@ class _StudentScanSummaryCard extends StatelessWidget {
               children: [
                 Icon(
                   isGood ? Icons.check_circle_outline : Icons.info_outline,
-                  color: isGood ? Colors.green.shade700 : Colors.orange.shade700,
+                  color: isGood
+                      ? Colors.green.shade700
+                      : Colors.orange.shade700,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w900,
-                        ),
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ],
@@ -2162,14 +2033,12 @@ class _StudentTechnicalDetails extends StatelessWidget {
   const _StudentTechnicalDetails({
     required this.acousticTokenController,
     required this.bleEvidenceController,
-    required this.wifiProofController,
     required this.beaconProofController,
     required this.rssiController,
   });
 
   final TextEditingController acousticTokenController;
   final TextEditingController bleEvidenceController;
-  final TextEditingController wifiProofController;
   final TextEditingController beaconProofController;
   final TextEditingController rssiController;
 
@@ -2194,12 +2063,6 @@ class _StudentTechnicalDetails extends StatelessWidget {
           _buildRequiredField(
             bleEvidenceController,
             'BLE Evidence',
-            readOnly: true,
-            required: false,
-          ),
-          _buildRequiredField(
-            wifiProofController,
-            'Wi-Fi/LAN Proof',
             readOnly: true,
             required: false,
           ),
@@ -2280,7 +2143,6 @@ class StudentHistoryPage extends StatefulWidget {
 
 class _StudentHistoryPageState extends State<StudentHistoryPage> {
   final _api = AttendanceApiService();
-  final _studentIdController = TextEditingController();
 
   bool _loading = true;
   String? _error;
@@ -2292,23 +2154,13 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
     _loadProofs();
   }
 
-  @override
-  void dispose() {
-    _studentIdController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadProofs() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final proofs = await _api.listProofs(
-        studentId: _studentIdController.text.trim().isEmpty
-            ? null
-            : _studentIdController.text.trim(),
-      );
+      final proofs = await _api.listProofs();
       if (!mounted) {
         return;
       }
@@ -2343,142 +2195,133 @@ class _StudentHistoryPageState extends State<StudentHistoryPage> {
         children: [
           _ScreenHeroCard(
             title: 'Attendance History',
-            subtitle:
-                'Review your submitted attendance records clearly and verify what has already been captured.',
+            subtitle: 'Attendance records submitted from this account.',
             icon: Icons.history_edu_outlined,
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: _studentIdController,
-            decoration: const InputDecoration(
-              labelText: 'Filter by Student ID (optional)',
-            ),
-          ),
-          const SizedBox(height: 10),
-          FilledButton(
+          OutlinedButton.icon(
             onPressed: _loadProofs,
-            child: const Text('Load History'),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh history'),
           ),
           const SizedBox(height: 12),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? _ErrorState(
-                        message: _error!,
-                        onRetry: _loadProofs,
-                      )
-                    : _proofs.isEmpty
-                        ? const _EmptyState(
-                            title: 'No attendance proofs found.',
-                          )
-                        : ListView.separated(
-                            itemCount: _proofs.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final proof = _proofs[index];
-                              final displayName = proof.studentName?.isNotEmpty == true
-                                  ? '${proof.studentName} (${proof.studentId})'
-                                  : proof.studentId;
-                              final mode = _proofScanModeLabel(
-                                acousticToken: proof.acousticToken,
-                                bleNonce: proof.bleNonce,
-                                wifiProof: proof.wifiProof,
-                                beaconProof: proof.beaconProof,
-                              );
-                              return Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(14),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primaryContainer,
-                                              borderRadius: BorderRadius.circular(14),
-                                            ),
-                                            child: Icon(
-                                              Icons.verified_outlined,
-                                              color: Theme.of(context).colorScheme.primary,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  '${proof.courseCode ?? 'Session'}${proof.courseTitle?.isNotEmpty == true ? " - ${proof.courseTitle}" : ""}',
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleMedium
-                                                      ?.copyWith(
-                                                        fontWeight: FontWeight.w800,
-                                                      ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  'Submitted ${proof.observedAt.toLocal()}',
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.copyWith(
-                                                        color: Colors.grey.shade700,
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          _StatusChip(
-                                            label: mode,
-                                            tone: _proofScanModeTone(mode),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 14),
-                                      _InlineInfoRows(
-                                        items: [
-                                          _ProfileDetailItem(
-                                            label: 'Student',
-                                            value: displayName,
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Lecturer',
-                                            value: proof.lecturerName ?? '-',
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Room',
-                                            value: proof.room ?? '-',
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Session',
-                                            value: '${proof.sessionId}',
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'RSSI',
-                                            value: '${proof.rssi}',
-                                          ),
-                                          _ProfileDetailItem(
-                                            label: 'Device',
-                                            value: SessionStore.displayDeviceId(
-                                              proof.deviceId,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                ? _ErrorState(message: _error!, onRetry: _loadProofs)
+                : _proofs.isEmpty
+                ? const _EmptyState(title: 'No attendance proofs found.')
+                : ListView.separated(
+                    itemCount: _proofs.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final proof = _proofs[index];
+                      final displayName = proof.studentName?.isNotEmpty == true
+                          ? '${proof.studentName} (${proof.studentId})'
+                          : proof.studentId;
+                      final mode = _proofScanModeLabel(
+                        acousticToken: proof.acousticToken,
+                        bleNonce: proof.bleNonce,
+                        beaconProof: proof.beaconProof,
+                      );
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primaryContainer,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Icon(
+                                      Icons.verified_outlined,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${proof.courseCode ?? 'Session'}${proof.courseTitle?.isNotEmpty == true ? " - ${proof.courseTitle}" : ""}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Submitted ${proof.observedAt.toLocal()}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Colors.grey.shade700,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  _StatusChip(
+                                    label: mode,
+                                    tone: _proofScanModeTone(mode),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              _InlineInfoRows(
+                                items: [
+                                  _ProfileDetailItem(
+                                    label: 'Student',
+                                    value: displayName,
+                                  ),
+                                  _ProfileDetailItem(
+                                    label: 'Lecturer',
+                                    value: proof.lecturerName ?? '-',
+                                  ),
+                                  _ProfileDetailItem(
+                                    label: 'Room',
+                                    value: proof.room ?? '-',
+                                  ),
+                                  _ProfileDetailItem(
+                                    label: 'Session',
+                                    value: '${proof.sessionId}',
+                                  ),
+                                  _ProfileDetailItem(
+                                    label: 'RSSI',
+                                    value: proof.rssi == 0
+                                        ? 'Not applicable'
+                                        : '${proof.rssi} dBm',
+                                  ),
+                                  _ProfileDetailItem(
+                                    label: 'Device',
+                                    value: SessionStore.displayDeviceId(
+                                      proof.deviceId,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -2512,9 +2355,7 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   final _transport = SignalTransportService();
   final _courseCodeController = TextEditingController();
   final _courseTitleController = TextEditingController();
-  final _lecturerNameController = TextEditingController();
   final _roomController = TextEditingController();
-  final _tokenVersionController = TextEditingController(text: 'v1');
 
   bool _submitting = false;
   bool _loadingRooms = false;
@@ -2589,9 +2430,7 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
         _lastSession = session;
         _courseCodeController.text = session.courseCode;
         _courseTitleController.text = session.courseTitle;
-        _lecturerNameController.text = session.lecturerName;
         _roomController.text = session.room;
-        _tokenVersionController.text = session.tokenVersion;
       });
     } catch (error) {
       // Ignore errors, session might be deleted
@@ -2611,10 +2450,10 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
       final payload = SessionModel(
         courseCode: _courseCodeController.text.trim(),
         courseTitle: _courseTitleController.text.trim(),
-        lecturerName: _lecturerNameController.text.trim(),
+        lecturerName: SessionStore.fullName?.trim() ?? '',
         room: _roomController.text.trim(),
         startsAt: DateTime.now(),
-        tokenVersion: _tokenVersionController.text.trim(),
+        tokenVersion: 'v1',
       );
       final created = await _api.createSession(payload);
       if (!mounted) {
@@ -2635,9 +2474,9 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
         error,
         fallback: 'Session could not be created. Please try again.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -2677,8 +2516,9 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     }
 
     final currentRoom = _roomController.text.trim();
-    final selectedRoom =
-        _availableRooms.contains(currentRoom) ? currentRoom : null;
+    final selectedRoom = _availableRooms.contains(currentRoom)
+        ? currentRoom
+        : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: DropdownButtonFormField<String>(
@@ -2706,10 +2546,8 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
         hint: const Text('Select registered room'),
         items: _availableRooms
             .map(
-              (room) => DropdownMenuItem<String>(
-                value: room,
-                child: Text(room),
-              ),
+              (room) =>
+                  DropdownMenuItem<String>(value: room, child: Text(room)),
             )
             .toList(),
         onChanged: (value) {
@@ -2743,9 +2581,9 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     if (!mounted) {
       return false;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
     return false;
   }
 
@@ -2777,14 +2615,14 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
         error,
         fallback: 'Attendance could not be opened. Please try again.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
     _broadcast.start(
       sessionId: sessionId,
-      tokenVersion: _tokenVersionController.text.trim(),
+      tokenVersion: _lastSession?.tokenVersion ?? 'v1',
     );
     setState(() {
       _broadcastSnapshot = _broadcast.latest;
@@ -2794,6 +2632,11 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
   Future<void> _stopBroadcast() async {
     final sessionId = _lastSession?.id;
     _broadcast.stop();
+    if (mounted) {
+      setState(() {
+        _broadcastSnapshot = null;
+      });
+    }
     if (sessionId != null) {
       try {
         final closed = await _api.closeAttendance(sessionId.toString());
@@ -2826,9 +2669,7 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
       _broadcastSnapshot = null;
       _courseCodeController.clear();
       _courseTitleController.clear();
-      _lecturerNameController.clear();
       _roomController.clear();
-      _tokenVersionController.text = 'v1';
     });
     _broadcast.stop();
   }
@@ -2838,9 +2679,7 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     _broadcastSub?.cancel();
     _courseCodeController.dispose();
     _courseTitleController.dispose();
-    _lecturerNameController.dispose();
     _roomController.dispose();
-    _tokenVersionController.dispose();
     super.dispose();
   }
 
@@ -2852,13 +2691,13 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
     final title = attendanceOpen
         ? 'Attendance is live'
         : hasSession
-            ? 'Session ready'
-            : 'Prepare class session';
+        ? 'Session ready'
+        : 'Prepare class session';
     final subtitle = attendanceOpen
         ? 'Students can now scan acoustic, BLE, or room beacon proof for this class.'
         : hasSession
-            ? 'Review the class details, then open attendance when the room is ready.'
-            : 'Create a session, select the registered room, and control attendance from one place.';
+        ? 'Review the class details, then open attendance when the room is ready.'
+        : 'Enter the course details and select the classroom.';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -2878,7 +2717,9 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
               _LecturerActiveSessionCard(
                 session: activeSession,
                 broadcasting: _broadcast.isRunning,
-                onOpenClose: _broadcast.isRunning ? _stopBroadcast : _startBroadcast,
+                onOpenClose: _broadcast.isRunning
+                    ? _stopBroadcast
+                    : _startBroadcast,
                 onStopSession: _stopSession,
               ),
               const SizedBox(height: 14),
@@ -2888,8 +2729,6 @@ class _LecturerSessionPageState extends State<LecturerSessionPage> {
               hasSession: hasSession,
               courseCodeController: _courseCodeController,
               courseTitleController: _courseTitleController,
-              lecturerNameController: _lecturerNameController,
-              tokenVersionController: _tokenVersionController,
               roomSelector: _buildRoomSelector(),
               onCreateSession: _submitting ? null : _createSession,
             ),
@@ -2970,7 +2809,8 @@ class _LecturerCommandHero extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
                             color: _AppPalette.ink,
                             fontWeight: FontWeight.w900,
                             letterSpacing: -0.4,
@@ -2980,9 +2820,9 @@ class _LecturerCommandHero extends StatelessWidget {
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: _AppPalette.muted,
-                            height: 1.45,
-                          ),
+                        color: _AppPalette.muted,
+                        height: 1.45,
+                      ),
                     ),
                   ],
                 ),
@@ -3061,7 +2901,9 @@ class _LecturerActiveSessionCard extends StatelessWidget {
                     attendanceOpen
                         ? Icons.radio_button_checked
                         : Icons.event_available_outlined,
-                    color: attendanceOpen ? Colors.green.shade700 : colors.primary,
+                    color: attendanceOpen
+                        ? Colors.green.shade700
+                        : colors.primary,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -3071,9 +2913,8 @@ class _LecturerActiveSessionCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w900,
-                            ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w900),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -3081,8 +2922,8 @@ class _LecturerActiveSessionCard extends StatelessWidget {
                             ? 'Students can scan and submit attendance now.'
                             : 'Session created. Open attendance when ready.',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: colors.onSurfaceVariant,
-                            ),
+                          color: colors.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -3097,7 +2938,10 @@ class _LecturerActiveSessionCard extends StatelessWidget {
             _InlineInfoRows(
               items: [
                 _ProfileDetailItem(label: 'Session ID', value: '${session.id}'),
-                _ProfileDetailItem(label: 'Lecturer', value: session.lecturerName),
+                _ProfileDetailItem(
+                  label: 'Lecturer',
+                  value: session.lecturerName,
+                ),
                 _ProfileDetailItem(label: 'Room', value: session.room),
                 _ProfileDetailItem(
                   label: 'Started',
@@ -3142,8 +2986,6 @@ class _LecturerCreateSessionPanel extends StatelessWidget {
     required this.hasSession,
     required this.courseCodeController,
     required this.courseTitleController,
-    required this.lecturerNameController,
-    required this.tokenVersionController,
     required this.roomSelector,
     required this.onCreateSession,
   });
@@ -3152,8 +2994,6 @@ class _LecturerCreateSessionPanel extends StatelessWidget {
   final bool hasSession;
   final TextEditingController courseCodeController;
   final TextEditingController courseTitleController;
-  final TextEditingController lecturerNameController;
-  final TextEditingController tokenVersionController;
   final Widget roomSelector;
   final VoidCallback? onCreateSession;
 
@@ -3176,9 +3016,7 @@ class _LecturerCreateSessionPanel extends StatelessWidget {
         children: [
           _buildRequiredField(courseCodeController, 'Course Code'),
           _buildRequiredField(courseTitleController, 'Course Title'),
-          _buildRequiredField(lecturerNameController, 'Lecturer Name'),
           roomSelector,
-          _buildRequiredField(tokenVersionController, 'Token Version'),
           const SizedBox(height: 6),
           SizedBox(
             width: double.infinity,
@@ -3209,11 +3047,9 @@ class _LecturerBroadcastPanel extends StatelessWidget {
         tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         leading: const Icon(Icons.monitor_heart_outlined),
-        title: const Text('Broadcast diagnostics'),
-        subtitle: const Text('Acoustic and BLE transmitter status'),
-        children: [
-          _BroadcastPayloadCard(snapshot: snapshot),
-        ],
+        title: const Text('Broadcast status'),
+        subtitle: const Text('Check the active acoustic and Bluetooth signals'),
+        children: [_BroadcastPayloadCard(snapshot: snapshot)],
       ),
     );
   }
@@ -3345,15 +3181,17 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
         error,
         fallback: 'Session could not be deleted. Please try again.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final openCount = _sessions.where((session) => session.attendanceOpen).length;
+    final openCount = _sessions
+        .where((session) => session.attendanceOpen)
+        .length;
     final activeCount = _sessions.where((session) => session.active).length;
     final filteredSessions = _filteredSessions;
     return Padding(
@@ -3379,8 +3217,8 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
                 child: Text(
                   'Session Register (${filteredSessions.length})',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               OutlinedButton.icon(
@@ -3395,30 +3233,27 @@ class _LecturerLivePageState extends State<LecturerLivePage> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? _ErrorState(
-                        message: _error!,
-                        onRetry: _loadSessions,
-                      )
-                    : _sessions.isEmpty
-                        ? const _EmptyState(title: 'No sessions available.')
-                        : filteredSessions.isEmpty
-                            ? const _EmptyState(title: 'No matching sessions found.')
-                        : ListView.separated(
-                            itemCount: filteredSessions.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final session = filteredSessions[index];
-                              return _LecturerSessionListCard(
-                                session: session,
-                                selected:
-                                    SessionStore.currentSessionId == session.id.toString(),
-                                onLoad: () => widget.onLoadSession(
-                                  session.id.toString(),
-                                ),
-                                onDelete: () => _deleteSession(session),
-                              );
-                            },
-                          ),
+                ? _ErrorState(message: _error!, onRetry: _loadSessions)
+                : _sessions.isEmpty
+                ? const _EmptyState(title: 'No sessions available.')
+                : filteredSessions.isEmpty
+                ? const _EmptyState(title: 'No matching sessions found.')
+                : ListView.separated(
+                    itemCount: filteredSessions.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final session = filteredSessions[index];
+                      return _LecturerSessionListCard(
+                        session: session,
+                        selected:
+                            SessionStore.currentSessionId ==
+                            session.id.toString(),
+                        onLoad: () =>
+                            widget.onLoadSession(session.id.toString()),
+                        onDelete: () => _deleteSession(session),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -3470,16 +3305,16 @@ class _LecturerLiveHero extends StatelessWidget {
                 Text(
                   'Live Sessions',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '$totalSessions total | $activeSessions active | $openSessions open',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _AppPalette.muted,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: _AppPalette.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -3558,8 +3393,8 @@ class _LecturerSessionListCard extends StatelessWidget {
     final tone = session.attendanceOpen
         ? _ChipTone.success
         : session.active
-            ? _ChipTone.neutral
-            : _ChipTone.danger;
+        ? _ChipTone.neutral
+        : _ChipTone.danger;
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
@@ -3599,16 +3434,14 @@ class _LecturerSessionListCard extends StatelessWidget {
                       children: [
                         Text(
                           title,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                              ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           'Room ${session.room} - ${session.startsAt.toLocal()}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: colors.onSurfaceVariant,
-                              ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -3629,8 +3462,8 @@ class _LecturerSessionListCard extends StatelessWidget {
                     label: session.attendanceOpen
                         ? 'Attendance Open'
                         : session.active
-                            ? 'Session Ready'
-                            : 'Inactive',
+                        ? 'Session Ready'
+                        : 'Inactive',
                     tone: tone,
                   ),
                   if (selected)
@@ -3719,7 +3552,9 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
         });
         return;
       }
-      final report = await _api.getValidationReport(sessionId: _currentSessionId);
+      final report = await _api.getValidationReport(
+        sessionId: _currentSessionId,
+      );
       if (!mounted) {
         return;
       }
@@ -3749,7 +3584,6 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
     return _proofScanModeLabel(
       acousticToken: proof.acousticToken,
       bleNonce: proof.bleNonce,
-      wifiProof: proof.wifiProof,
       beaconProof: proof.beaconProof,
     );
   }
@@ -3763,7 +3597,9 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
     final sessionIdText = _currentSessionId?.trim() ?? '';
     if (sessionIdText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select or load a current session first.')),
+        const SnackBar(
+          content: Text('Select or load a current session first.'),
+        ),
       );
       return;
     }
@@ -3771,7 +3607,9 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
     final sessionId = int.tryParse(sessionIdText);
     if (sessionId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Current session id is not valid for export.')),
+        const SnackBar(
+          content: Text('Current session id is not valid for export.'),
+        ),
       );
       return;
     }
@@ -3787,7 +3625,9 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No attendance rows found for this session.')),
+          const SnackBar(
+            content: Text('No attendance rows found for this session.'),
+          ),
         );
         return;
       }
@@ -3799,13 +3639,15 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
         final studentName = (proof.studentName ?? '').trim().isEmpty
             ? 'Unknown'
             : proof.studentName!.trim();
-        buffer.writeln([
-          '${i + 1}',
-          _csvCell(studentName),
-          _csvCell(proof.studentId),
-          _csvCell(proof.deviceId),
-          _csvCell(_detectScanMode(proof)),
-        ].join(','));
+        buffer.writeln(
+          [
+            '${i + 1}',
+            _csvCell(studentName),
+            _csvCell(proof.studentId),
+            _csvCell(proof.deviceId),
+            _csvCell(_detectScanMode(proof)),
+          ].join(','),
+        );
       }
 
       final directory = await getApplicationDocumentsDirectory();
@@ -3841,9 +3683,9 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
         error,
         fallback: 'CSV export could not be completed.',
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) {
         setState(() {
@@ -3855,7 +3697,8 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final sessionLabel = (_currentSessionId == null || _currentSessionId!.trim().isEmpty)
+    final sessionLabel =
+        (_currentSessionId == null || _currentSessionId!.trim().isEmpty)
         ? 'No session selected'
         : 'Session $_currentSessionId';
     final rooms = _items
@@ -3896,7 +3739,9 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: (_loading || _exporting) ? null : _exportCurrentSessionCsv,
+                  onPressed: (_loading || _exporting)
+                      ? null
+                      : _exportCurrentSessionCsv,
                   icon: const Icon(Icons.ios_share_outlined),
                   label: Text(_exporting ? 'Exporting...' : 'Export CSV'),
                 ),
@@ -3908,26 +3753,23 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? _ErrorState(message: _error!, onRetry: _loadReport)
-                    : _items.isEmpty
-                        ? _EmptyState(
-                            title: _currentSessionId == null
-                                ? 'Select a session before loading reports.'
-                                : 'No attendance rows for this session yet.',
-                          )
-                        : filteredItems.isEmpty
-                            ? const _EmptyState(title: 'No matching students found.')
-                        : ListView.separated(
-                            itemCount: filteredItems.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 6),
-                            itemBuilder: (_, index) {
-                              final row = filteredItems[index];
-                              return _LecturerReportRowCard(
-                                index: index + 1,
-                                row: row,
-                              );
-                            },
-                          ),
+                ? _ErrorState(message: _error!, onRetry: _loadReport)
+                : _items.isEmpty
+                ? _EmptyState(
+                    title: _currentSessionId == null
+                        ? 'Select a session before loading reports.'
+                        : 'No attendance rows for this session yet.',
+                  )
+                : filteredItems.isEmpty
+                ? const _EmptyState(title: 'No matching students found.')
+                : ListView.separated(
+                    itemCount: filteredItems.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 6),
+                    itemBuilder: (_, index) {
+                      final row = filteredItems[index];
+                      return _LecturerReportRowCard(index: index + 1, row: row);
+                    },
+                  ),
           ),
         ],
       ),
@@ -3936,13 +3778,11 @@ class _LecturerReportsPageState extends State<LecturerReportsPage> {
 
   String _detectReportMode(ValidationReportItemModel row) {
     final beacon = (row.beaconProof ?? '').trim().isNotEmpty;
-    final wifi = (row.wifiClientIp ?? '').trim().isNotEmpty;
     final hasBle = (row.bleAgeSeconds != null) || beacon;
     final hasAcoustic = row.acousticAgeSeconds != null;
     return _proofScanModeLabel(
       acousticToken: hasAcoustic ? 'acoustic' : '',
       bleNonce: hasBle ? 'ble' : '',
-      wifiProof: wifi ? 'wifi' : '',
       beaconProof: beacon ? 'beacon' : '',
     );
   }
@@ -3979,7 +3819,10 @@ class _LecturerReportHero extends StatelessWidget {
               color: _AppPalette.tealSoft,
               borderRadius: BorderRadius.circular(15),
             ),
-            child: const Icon(Icons.analytics_outlined, color: _AppPalette.teal),
+            child: const Icon(
+              Icons.analytics_outlined,
+              color: _AppPalette.teal,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -3989,16 +3832,16 @@ class _LecturerReportHero extends StatelessWidget {
                 Text(
                   'Validation Report',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '$sessionLabel | $totalRows students | $roomCount rooms | $modeCount modes',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _AppPalette.muted,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: _AppPalette.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -4010,10 +3853,7 @@ class _LecturerReportHero extends StatelessWidget {
 }
 
 class _LecturerReportRowCard extends StatelessWidget {
-  const _LecturerReportRowCard({
-    required this.index,
-    required this.row,
-  });
+  const _LecturerReportRowCard({required this.index, required this.row});
 
   final int index;
   final ValidationReportItemModel row;
@@ -4053,9 +3893,9 @@ class _LecturerReportRowCard extends StatelessWidget {
           studentName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
         ),
         children: [
           _InlineInfoRows(
@@ -4086,38 +3926,6 @@ class LecturerProfilePage extends StatelessWidget {
   }
 }
 
-class _PlaceholderPage extends StatelessWidget {
-  const _PlaceholderPage({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title,
-              style: Theme.of(context).textTheme.headlineSmall,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodyLarge,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _LogoutButton extends StatelessWidget {
   const _LogoutButton({required this.onPressed});
 
@@ -4136,19 +3944,14 @@ class _LogoutButton extends StatelessWidget {
         side: BorderSide(color: colorScheme.outlineVariant),
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
       ),
     );
   }
 }
 
 class _AccountProfilePage extends StatefulWidget {
-  const _AccountProfilePage({
-    required this.title,
-    required this.roleLabel,
-  });
+  const _AccountProfilePage({required this.title, required this.roleLabel});
 
   final String title;
   final String roleLabel;
@@ -4160,22 +3963,11 @@ class _AccountProfilePage extends StatefulWidget {
 class _AccountProfilePageState extends State<_AccountProfilePage> {
   String? _deviceId;
   final _auth = AuthService();
-  final _apiBaseUrlController = TextEditingController();
-  bool _enrollingFace = false;
-  String? _latestEnrolledFaceBase64;
-  bool _savingApiUrl = false;
 
   @override
   void initState() {
     super.initState();
-    _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
     _loadDeviceId();
-  }
-
-  @override
-  void dispose() {
-    _apiBaseUrlController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadDeviceId() async {
@@ -4196,77 +3988,6 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
     });
   }
 
-  Future<void> _enrollFaceFromProfile() async {
-    setState(() {
-      _enrollingFace = true;
-    });
-    try {
-      final result = await _captureFaceImage(
-        context,
-        title: 'Complete Face Enrollment',
-        subtitle:
-            'This will capture your enrollment face automatically once the camera sees a centered, well-lit face.',
-      );
-      if (!mounted || result == null) {
-        return;
-      }
-      await _auth.enrollFace(result.base64Image);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _latestEnrolledFaceBase64 = result.base64Image;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Face enrollment saved successfully.')),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      final message = friendlyErrorMessage(
-        error,
-        fallback: 'Face enrollment could not be saved.',
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _enrollingFace = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _saveApiBaseUrl() async {
-    final value = _apiBaseUrlController.text.trim();
-    if (value.isEmpty ||
-        (!value.startsWith('http://') && !value.startsWith('https://'))) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Enter a backend URL starting with http:// or https://'),
-        ),
-      );
-      return;
-    }
-    setState(() {
-      _savingApiUrl = true;
-    });
-    await ApiConfig.setRuntimeBaseUrl(value);
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _apiBaseUrlController.text = ApiConfig.currentBaseUrl;
-      _savingApiUrl = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Backend URL saved: ${ApiConfig.currentBaseUrl}')),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final identity = SessionStore.currentIdentity();
@@ -4276,7 +3997,9 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
     final accent = widget.roleLabel == 'Lecturer'
         ? _AppPalette.navy
         : _AppPalette.teal;
-    final roleIcon = widget.roleLabel == 'Lecturer' ? Icons.school : Icons.badge;
+    final roleIcon = widget.roleLabel == 'Lecturer'
+        ? Icons.school
+        : Icons.badge;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -4309,18 +4032,18 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
                 Text(
                   fullName.isEmpty ? widget.title : fullName,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: _AppPalette.ink,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.4,
-                      ),
+                    color: _AppPalette.ink,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.4,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   widget.roleLabel,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _AppPalette.muted,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: _AppPalette.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Wrap(
@@ -4348,17 +4071,22 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
           const SizedBox(height: 10),
           _ProfileDetailCard(
             items: [
-              _ProfileDetailItem(label: 'Full Name', value: fullName.isEmpty ? '(not available)' : fullName),
-              _ProfileDetailItem(label: 'Primary ID', value: identity.isEmpty ? '(not available)' : identity),
-              if (matric.isNotEmpty) _ProfileDetailItem(label: 'Matric Number', value: matric),
-              if (username.isNotEmpty) _ProfileDetailItem(label: 'Username', value: username),
+              _ProfileDetailItem(
+                label: 'Full Name',
+                value: fullName.isEmpty ? '(not available)' : fullName,
+              ),
+              _ProfileDetailItem(
+                label: 'Primary ID',
+                value: identity.isEmpty ? '(not available)' : identity,
+              ),
+              if (matric.isNotEmpty)
+                _ProfileDetailItem(label: 'Matric Number', value: matric),
+              if (username.isNotEmpty)
+                _ProfileDetailItem(label: 'Username', value: username),
             ],
           ),
           const SizedBox(height: 14),
-          Text(
-            'Device',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('Device', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 10),
           _ProfileDetailCard(
             items: [
@@ -4378,154 +4106,8 @@ class _AccountProfilePageState extends State<_AccountProfilePage> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: Text(
-              'Advanced Connection Settings',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            subtitle: Text(
-              'Only change this if you need to switch away from the hosted server.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.black54,
-                  ),
-            ),
-            children: [
-              const SizedBox(height: 10),
-              _BackendUrlCard(
-                controller: _apiBaseUrlController,
-                saving: _savingApiUrl,
-                onSave: _saveApiBaseUrl,
-              ),
-            ],
-          ),
         ],
       ),
-    );
-  }
-}
-
-class _FaceCaptureCard extends StatelessWidget {
-  const _FaceCaptureCard({
-    required this.title,
-    required this.subtitle,
-    required this.imageBase64,
-    required this.busy,
-    required this.actionLabel,
-    required this.onCapture,
-  });
-
-  final String title;
-  final String subtitle;
-  final String? imageBase64;
-  final bool busy;
-  final String actionLabel;
-  final VoidCallback? onCapture;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasImage = imageBase64 != null && imageBase64!.isNotEmpty;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(subtitle),
-            const SizedBox(height: 12),
-            Center(
-              child: _FacePreviewAvatar(
-                imageBase64: imageBase64,
-                radius: 42,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: busy ? null : onCapture,
-                icon: Icon(hasImage ? Icons.cameraswitch : Icons.camera_alt),
-                label: Text(busy ? 'Opening Camera...' : actionLabel),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FacePreviewTile extends StatelessWidget {
-  const _FacePreviewTile({
-    required this.label,
-    required this.imageBase64,
-  });
-
-  final String label;
-  final String? imageBase64;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Text(label, style: Theme.of(context).textTheme.bodyMedium),
-          const SizedBox(height: 8),
-          _FacePreviewAvatar(
-            imageBase64: imageBase64,
-            radius: 34,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FacePreviewAvatar extends StatelessWidget {
-  const _FacePreviewAvatar({
-    required this.imageBase64,
-    required this.radius,
-  });
-
-  final String? imageBase64;
-  final double radius;
-
-  @override
-  Widget build(BuildContext context) {
-    final cleaned = imageBase64?.trim() ?? '';
-    if (cleaned.isEmpty) {
-      return CircleAvatar(
-        radius: radius,
-        child: Icon(Icons.face_retouching_natural, size: radius * 0.9),
-      );
-    }
-
-    Uint8List? bytes;
-    try {
-      bytes = base64Decode(cleaned);
-    } catch (_) {
-      bytes = null;
-    }
-
-    if (bytes == null) {
-      return CircleAvatar(
-        radius: radius,
-        child: Icon(Icons.broken_image_outlined, size: radius * 0.9),
-      );
-    }
-
-    return CircleAvatar(
-      radius: radius,
-      backgroundImage: MemoryImage(bytes),
-      backgroundColor: Colors.grey.shade200,
     );
   }
 }
@@ -4589,106 +4171,6 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Colors.grey.shade700,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BackendUrlCard extends StatelessWidget {
-  const _BackendUrlCard({
-    required this.controller,
-    required this.saving,
-    required this.onSave,
-  });
-
-  final TextEditingController controller;
-  final bool saving;
-  final VoidCallback onSave;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.dns_outlined, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Backend URL',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Change this when your laptop IP changes. Example: http://10.73.208.158:8000',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: controller,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-              labelText: 'Backend URL',
-              prefixIcon: Icon(Icons.link),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: saving ? null : onSave,
-              icon: const Icon(Icons.save_outlined),
-              label: Text(saving ? 'Saving...' : 'Save URL'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _AuthPane extends StatelessWidget {
   const _AuthPane({
     required this.title,
@@ -4737,18 +4219,18 @@ class _AuthPane extends StatelessWidget {
               Text(
                 title,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: _AppPalette.ink,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                    ),
+                  color: _AppPalette.ink,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.5,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 subtitle,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: _AppPalette.muted,
-                      height: 1.45,
-                    ),
+                  color: _AppPalette.muted,
+                  height: 1.45,
+                ),
               ),
               const SizedBox(height: 14),
               const _HostedConnectionPill(),
@@ -4757,10 +4239,7 @@ class _AuthPane extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: child,
-          ),
+          child: Padding(padding: const EdgeInsets.all(18), child: child),
         ),
       ],
     );
@@ -4849,9 +4328,9 @@ class _ScreenHeroCard extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                      ),
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -4868,10 +4347,7 @@ class _ScreenHeroCard extends StatelessWidget {
 }
 
 class _SectionTitleBar extends StatelessWidget {
-  const _SectionTitleBar({
-    required this.title,
-    this.action,
-  });
+  const _SectionTitleBar({required this.title, this.action});
 
   final String title;
   final Widget? action;
@@ -4883,9 +4359,9 @@ class _SectionTitleBar extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         ?action,
@@ -4929,7 +4405,8 @@ class _MetricsStrip extends StatelessWidget {
                       children: [
                         Text(
                           item.label.toUpperCase(),
-                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
                                 color: _AppPalette.muted,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 0.6,
@@ -4940,7 +4417,8 @@ class _MetricsStrip extends StatelessWidget {
                           item.value,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: -0.1,
                               ),
@@ -4958,20 +4436,14 @@ class _MetricsStrip extends StatelessWidget {
 }
 
 class _MetricItem {
-  const _MetricItem({
-    required this.label,
-    required this.value,
-  });
+  const _MetricItem({required this.label, required this.value});
 
   final String label;
   final String value;
 }
 
 class _ProfileChip extends StatelessWidget {
-  const _ProfileChip({
-    required this.label,
-    this.color = _AppPalette.teal,
-  });
+  const _ProfileChip({required this.label, this.color = _AppPalette.teal});
 
   final String label;
   final Color color;
@@ -5018,9 +4490,9 @@ class _ProfileDetailCard extends StatelessWidget {
                     child: Text(
                       items[i].label,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: _AppPalette.muted,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        color: _AppPalette.muted,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -5030,9 +4502,9 @@ class _ProfileDetailCard extends StatelessWidget {
                       items[i].value,
                       textAlign: TextAlign.right,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: _AppPalette.ink,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        color: _AppPalette.ink,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ],
@@ -5074,9 +4546,9 @@ class _InlineInfoRows extends StatelessWidget {
                 child: Text(
                   items[i].label,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: _AppPalette.muted,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    color: _AppPalette.muted,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -5085,9 +4557,9 @@ class _InlineInfoRows extends StatelessWidget {
                   items[i].value,
                   textAlign: TextAlign.right,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _AppPalette.ink,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    color: _AppPalette.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
@@ -5143,17 +4615,17 @@ class _GuidanceCard extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: foreground,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   message,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _AppPalette.ink,
-                        height: 1.35,
-                      ),
+                    color: _AppPalette.ink,
+                    height: 1.35,
+                  ),
                 ),
               ],
             ),
@@ -5185,8 +4657,8 @@ class _BroadcastPayloadCard extends StatelessWidget {
                 Text(
                   'Live Broadcast',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -5201,7 +4673,8 @@ class _BroadcastPayloadCard extends StatelessWidget {
                   tone: _ChipTone.success,
                 ),
                 _StatusChip(
-                  label: 'BLE: ${_friendlyNativeStatus(snapshot.nativeStatus.bleStatus)}',
+                  label:
+                      'BLE: ${_friendlyNativeStatus(snapshot.nativeStatus.bleStatus)}',
                   tone: _bleStatusTone(snapshot.nativeStatus.bleStatus),
                 ),
               ],
@@ -5214,16 +4687,12 @@ class _BroadcastPayloadCard extends StatelessWidget {
                   value: '${acoustic.sessionId}',
                 ),
                 _ProfileDetailItem(
-                  label: 'Token Version',
-                  value: acoustic.tokenVersion,
-                ),
-                _ProfileDetailItem(
-                  label: 'Started',
+                  label: 'Last Signal Refresh',
                   value: acoustic.issuedAt.toLocal().toString(),
                 ),
                 _ProfileDetailItem(
-                  label: 'Refresh Window',
-                  value: '60 seconds',
+                  label: 'Signal Rotation',
+                  value: 'Every 45 seconds',
                 ),
               ],
             ),
@@ -5311,10 +4780,12 @@ class _ScanResultCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  failedChecks.isEmpty ? 'Signal Accepted' : 'Scan Needs Attention',
+                  failedChecks.isEmpty
+                      ? 'Signal Accepted'
+                      : 'Scan Needs Attention',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -5345,9 +4816,9 @@ class _ScanResultCard extends StatelessWidget {
               Text(
                 'Scan checks completed successfully.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.green.shade700,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: Colors.green.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ],
@@ -5364,6 +4835,7 @@ Widget _buildRequiredField(
   bool readOnly = false,
   bool obscure = false,
   bool required = true,
+  int? minLength,
 }) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 10),
@@ -5380,6 +4852,9 @@ Widget _buildRequiredField(
         if (required && (value == null || value.trim().isEmpty)) {
           return '$label is required';
         }
+        if (minLength != null && (value?.length ?? 0) < minLength) {
+          return '$label must be at least $minLength characters';
+        }
         return null;
       },
     ),
@@ -5393,7 +4868,9 @@ class _ScanTestLogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = log.isSuccessful ? Colors.green.shade700 : Colors.red.shade700;
+    final statusColor = log.isSuccessful
+        ? Colors.green.shade700
+        : Colors.red.shade700;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -5411,7 +4888,9 @@ class _ScanTestLogCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    log.isSuccessful ? 'Reliable scan captured' : 'Signal not ready',
+                    log.isSuccessful
+                        ? 'Reliable scan captured'
+                        : 'Signal not ready',
                     style: TextStyle(
                       color: statusColor,
                       fontWeight: FontWeight.w800,
@@ -5455,19 +4934,14 @@ class _ScanTestLogCard extends StatelessWidget {
                       ? _ChipTone.success
                       : _ChipTone.neutral,
                 ),
-                if (_isWifiLog(log))
-                  const _StatusChip(
-                    label: 'Wi-Fi/LAN ready',
-                    tone: _ChipTone.success,
-                  ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               'Recorded ${log.recordedAt.toLocal()}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey.shade700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade700),
             ),
             if (log.failedChecks.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -5506,20 +4980,12 @@ class _ScanTestLogCard extends StatelessWidget {
     }
     return 'not captured';
   }
-
-  bool _isWifiLog(ScanTestLogModel log) {
-    final summary = log.trustSummary.toLowerCase();
-    return summary.contains('wi-fi') || summary.contains('wifi');
-  }
 }
 
 enum _ChipTone { neutral, success, danger }
 
 class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.label,
-    required this.tone,
-  });
+  const _StatusChip({required this.label, required this.tone});
 
   final String label;
   final _ChipTone tone;

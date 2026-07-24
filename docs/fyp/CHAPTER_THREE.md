@@ -1,401 +1,398 @@
 # Chapter Three: System Analysis and Design
 
-## 3.1 Introduction
+## 3.1 Development Methodology
 
-This chapter presents the methodology, system analysis, architecture, database design, validation model, and implementation plan for the smart attendance system. The system is designed to help lecturers create attendance sessions and allow students to submit attendance proof using proximity-based signals. The main proof channels are Bluetooth Low Energy (BLE) and acoustic beaconing. BLE is treated as the more practical classroom-range signal in the current prototype, while acoustic beaconing is treated as a short-range copresence signal. A Wi-Fi/LAN proof path is included only as a fallback for controlled classroom-network situations.
+The system was developed with an iterative Agile approach. Agile was selected because the project combined a mobile interface, native Android services, acoustic signal processing, BLE communication, server-side validation, a relational database, deployment, and physical-device testing. These parts could not be evaluated adequately through a single sequential implementation. The Agile emphasis on working software and response to change allowed each increment to be tested before the next design decision was fixed (Beck et al., 2001).
 
-The design follows the central idea that attendance should not be accepted merely because a student is logged in. Instead, the system should validate identity, session status, proof freshness, device trust, and duplicate prevention on the backend. This approach reduces the risks associated with static QR codes, manual signing, and client-only validation.
+The development process consisted of repeated cycles:
 
-## 3.2 Development Methodology
+1. define the behaviour required for one workflow;
+2. implement the mobile and backend components;
+3. run focused automated checks;
+4. test the feature on physical Android devices;
+5. record the failure or usability problem;
+6. revise the design; and
+7. retain the verified implementation in version control.
 
-The project follows an Agile and iterative development approach. Agile development is suitable for this project because the system contains several interacting parts: a mobile application, a backend API, native Android acoustic processing, BLE advertising and scanning, device binding, Wi-Fi fallback, and attendance reporting. These parts required repeated testing, adjustment, and refinement as real-device limitations became clear.
+This process materially changed the system. Acoustic signalling was initially expected to provide wider coverage, but device testing showed that the implemented decoder was dependable only at close range. BLE reception improved after the required Android permissions were handled correctly and consequently became the principal classroom mechanism. The DX-CP27 beacon was introduced as a room-specific BLE source, after which room assignment, beacon parsing, RSSI selection, and adjacent-room conflict rules were added.
 
-The Agile approach is also suitable because the project evolved through practical feedback. For example, acoustic scanning was initially expected to provide wider coverage, but real device testing showed that it currently works best at short range. BLE performance also improved significantly after the correct Android permissions, including location and nearby-device permissions, were enabled. These findings required the system design to be adjusted so that BLE became the main practical proximity channel, acoustic became a short-range supplementary channel, and Wi-Fi/LAN became a fallback. This reflects the Agile principle of responding to change based on working software and feedback (Beck et al., 2001).
+The final implementation increment added a native Android foreground service, persistent notification, and partial wake lock so that a lecturer broadcast continues when the lecturer changes pages or locks the screen. This revision arose directly from physical use rather than from the original interface specification.
 
-The development was divided into the following phases:
+## 3.2 Analysis of the Existing Attendance Process
 
-1. Requirement gathering and project scoping.
-2. Backend setup for authentication, sessions, attendance proof, and reporting.
-3. Flutter mobile app development for lecturer and student workflows.
-4. Acoustic beacon transmission and microphone-based decoding.
-5. BLE advertising and scanning for proximity verification.
-6. Device ID binding and duplicate prevention.
-7. Wi-Fi/LAN fallback proof implementation.
-8. UI/UX improvement and error-message refinement.
-9. APK testing on real Android devices.
-10. Documentation and preparation for presentation.
+The existing manual process can be represented as follows:
 
-## 3.3 Analysis of the Existing Attendance Process
+1. the lecturer announces attendance;
+2. students respond to roll call or sign a circulated register;
+3. the lecturer or class representative checks the list;
+4. the record is stored on paper or transferred to another system; and
+5. attendance is later compiled for the course.
 
-The traditional classroom attendance process normally involves roll call, a paper attendance sheet, or manual signature collection. These methods are simple but have several weaknesses:
+This process has four principal weaknesses. First, attendance collection competes with lecture time. Second, the record is vulnerable to proxy signing or response. Third, paper records require manual storage and compilation. Fourth, there is limited evidence linking the entry to a particular student, session, room, and time.
 
-1. They consume lecture time, especially in large classes.
-2. They require manual compilation after class.
-3. They are vulnerable to proxy attendance.
-4. They can be difficult to audit.
-5. Paper records may be lost, damaged, or altered.
+A basic web form improves storage but does not solve the evidence problem. A student outside the room can submit a shared link if the server only checks credentials. A static QR code or beacon identifier presents a similar weakness if it can be photographed, recorded, copied, or relayed. The proposed system therefore treats proximity capture and backend validation as separate stages.
 
-Some digital systems improve speed but still have limitations. A static QR code can be shared with absent students. A web form may be opened outside the classroom. RFID and biometric systems may require additional hardware, which increases deployment cost. Therefore, the proposed system is designed to use smartphones and short-lived proximity signals so that attendance proof is tied to a specific session and moment.
+## 3.3 Proposed System
 
-## 3.4 Proposed System Overview
+The proposed system is a hosted client-server application with three operating roles: lecturer, student, and administrator. The lecturer and student use one Flutter Android application, while the role returned by the backend determines the portal shown after login. The administrator uses the Django administration interface.
 
-The proposed system is a mobile and backend-based attendance platform. The lecturer creates a class session using the mobile app. The app generates session-specific proof signals and broadcasts them through BLE and acoustic sound. The student app scans for the available signal and submits the decoded proof to the backend. The backend validates the proof and stores the attendance record if it satisfies the required checks.
+The lecturer creates a session containing the course code, course title, room, and scheduled times. The backend supplies the lecturer name from the authenticated profile rather than trusting a typed name. When attendance is opened, the backend sets the opening time and a closing time 15 minutes later. Only one attendance session may be open for a room at a time.
 
-The system supports three attendance proof paths:
+The lecturer phone starts a foreground service that broadcasts acoustic and BLE evidence. The service generates new values every 45 seconds. Each generated acoustic token and BLE nonce remains acceptable for up to 60 seconds, giving a 15-second overlap for a scan or request in progress. The service continues across navigation and screen lock, but it stops when attendance is closed, the service is explicitly stopped, or the application task is removed.
 
-1. BLE proof: the student detects a session-specific BLE nonce from the lecturer device or future fixed beacon.
-2. Acoustic proof: the student decodes a short acoustic token from the lecturer device speaker.
-3. Wi-Fi/LAN fallback proof: the student submits a short proof while connected to the same local classroom network as the backend.
+The student initiates one scan operation. Acoustic capture and BLE scanning run concurrently to reduce waiting time. The app parses evidence from the lecturer phone and any supported room beacon. It compares valid BLE candidates by RSSI, resolves a fixed beacon to the currently open room session through the API, presents a concise result, and enables submission only when at least one acceptable path is available.
 
-The Wi-Fi/LAN proof is not designed to replace BLE or acoustic proof. It is included to support controlled demonstrations and fallback conditions where BLE or acoustic scanning fails. The main proximity verification focus remains BLE and acoustic beaconing.
+The student submits a proof containing the session, student identity, installation identifier, captured evidence, observed RSSI, observation time, and SHA-256 digest. The backend repeats all material checks and creates the attendance record within a database transaction.
 
-## 3.5 System Objectives
+![System architecture](assets/report/system_architecture.png)
 
-The system design is guided by the following objectives:
+*Figure 3.1. Implemented smart attendance system architecture.*
 
-1. Allow lecturers to create and manage class attendance sessions.
-2. Allow lecturer devices to broadcast session-specific BLE and acoustic signals.
-3. Allow students to scan for attendance signals using Android devices.
-4. Support Wi-Fi/LAN fallback only where controlled network verification is acceptable.
-5. Prevent duplicate attendance submission for the same session.
-6. Validate attendance proof on the backend instead of trusting the mobile client alone.
-7. Bind a student account to a device ID to reduce account-sharing fraud.
-8. Provide lecturer reports and CSV export for each session.
-9. Provide clear permission and error messages to improve usability during real-device tests.
+## 3.4 System Requirements
 
-## 3.6 Functional Requirements
+### 3.4.1 Functional Requirements
 
-The functional requirements describe what the system must do.
+The functional requirements are grouped by role.
 
-| Requirement ID | Requirement |
+**Lecturer requirements**
+
+1. register and authenticate as a lecturer;
+2. create, update, select, and permanently delete an owned session;
+3. select a room from registered beacon-room information;
+4. open or close attendance for an owned session;
+5. start and stop acoustic and lecturer-device BLE broadcasting;
+6. retain broadcast operation while navigating within the app or locking the screen;
+7. search sessions and attendance records;
+8. view a session-specific attendance report; and
+9. export the report as CSV.
+
+**Student requirements**
+
+1. register and authenticate with a unique matric number;
+2. maintain one installation identifier across logout and subsequent login;
+3. receive microphone, Bluetooth, nearby-device, and location guidance where required;
+4. scan acoustic and BLE channels concurrently;
+5. identify whether BLE evidence came from the lecturer phone, a room beacon, or both;
+6. resolve a registered beacon to an open session in its assigned room;
+7. review a clear successful or unsuccessful scan state;
+8. submit no more than one attendance proof for a session; and
+9. view attendance history and profile/device information.
+
+**Administrator requirements**
+
+1. manage users and profiles;
+2. inspect sessions, proofs, replay records, and registered beacons;
+3. configure beacon identity, room, RSSI threshold, transmit power, and interval;
+4. reset a student's device binding through a controlled admin action; and
+5. preserve submitted attendance and replay records as read-only audit data.
+
+### 3.4.2 Non-Functional Requirements
+
+**Security.** API operations require token authentication except registration, login, and health checking. Role and object ownership are enforced on the server. Production settings support HTTPS redirection, secure cookies, HTTP Strict Transport Security, and environment-managed secrets.
+
+**Integrity.** The backend recomputes the proof digest and stores proof and replay records atomically. Database uniqueness constraints provide a final guard against duplicate attendance, shared device bindings, and repeated use of a rotating signal by one student.
+
+**Usability.** The mobile interface uses role-specific navigation, concise status text, focused forms, searchable lists, expandable student rows, and recovery messages that do not expose exception traces.
+
+**Availability.** The hosted API removes dependence on a changing local IP address. The free hosting tier may introduce a cold start and is treated as a development deployment rather than an institutional service-level guarantee.
+
+**Compatibility.** The completed signal implementation targets Android. Layout tests use a 390 x 844 logical-pixel viewport to detect mobile overflow.
+
+**Maintainability.** Mobile networking is centralised in a shared API client, proof formats are isolated in a codec, and server validation is concentrated in serializers and role-aware views. Database changes are versioned through Django migrations.
+
+**Privacy.** The active API does not collect biometric evidence. Profile responses contain only the identity, role, and registered-device information required by the attendance workflow.
+
+## 3.5 System Architecture
+
+The architecture in Figure 3.1 contains five logical layers.
+
+### 3.5.1 Presentation Layer
+
+Flutter provides the authentication screen and the lecturer and student portals. The student portal contains Scan, History, and Profile destinations. The lecturer portal contains Session, Live, Reports, and Profile destinations. Navigation preserves the active student scan state, and lecturer broadcasting is not owned by a page widget.
+
+### 3.5.2 Native Android Signal Layer
+
+Flutter communicates with Kotlin code through a method channel. The native layer contains:
+
+1. `AttendanceBroadcastService` for foreground operation and 45-second rotation;
+2. `AcousticFrameEncoder` and `AcousticTransmitter` for PCM generation and playback;
+3. `AcousticFrameDecoder` for microphone capture, filtering, guard detection, tone decisions, frame parsing, and diagnostics; and
+4. `BleAdvertiser` for lecturer-device service-data advertising.
+
+BLE scanning is performed through the Flutter BLE package because scan results must be integrated with Flutter state and the room-beacon parser.
+
+### 3.5.3 Physical Signal Layer
+
+Three physical observations are supported:
+
+1. an acoustic frame emitted by the lecturer speaker;
+2. a short-lived BLE service-data advertisement emitted by the lecturer phone; and
+3. an iBeacon or Eddystone UID frame emitted by a fixed room beacon.
+
+The first two carry session-specific rotating data. The room beacon carries a configured identity and depends on backend room/session validation.
+
+### 3.5.4 API and Validation Layer
+
+Django REST Framework exposes authentication, session, proof, room-beacon, report, export, and health endpoints. Token authentication identifies the account. Serializers parse and validate proof data, while views apply role, ownership, device-binding, room, and query-scope rules.
+
+### 3.5.5 Data and Reporting Layer
+
+The relational database stores users, profiles, sessions, proofs, registered beacons, and replay records. Lecturer queries are restricted to sessions created by that lecturer. Student history is restricted to the authenticated identity. Reports are filtered by the selected session, and CSV export contains serial number, student name, matric number, device identifier, and signal mode.
+
+## 3.6 User Roles and Authorisation
+
+### 3.6.1 Lecturer
+
+A lecturer may create and manage only sessions associated with the lecturer profile. The name stored on a session is taken from the authenticated account. Another lecturer cannot update, delete, open, close, report on, or export that session. These controls are applied in the API and are not dependent on hidden interface buttons.
+
+### 3.6.2 Student
+
+A student may view only currently open sessions and the student's own proof history. The `student_id` in a proof must equal the matric number or username of the authenticated profile. The server does not permit a student to submit an arbitrary matric number.
+
+### 3.6.3 Administrator
+
+The administrator may configure operational records through Django admin. Proofs and replay records are read-only because modifying or deleting accepted evidence would weaken auditability. A device binding may be reset through a named administrative action when a legitimate replacement is approved.
+
+## 3.7 Session Lifecycle
+
+A session moves through the following states:
+
+1. **Created:** the lecturer supplies course and room information; attendance is closed.
+2. **Open:** the owner opens attendance; the backend records `attendance_opened_at` and computes `attendance_closes_at`.
+3. **Broadcasting:** the Android foreground service transmits rotating evidence for that session.
+4. **Closed:** the lecturer closes attendance or the configured 15-minute window expires.
+5. **Inactive or deleted:** the lecturer may deactivate or permanently delete the owned session.
+
+Before returning session or room data, the backend closes any record whose attendance closing time has passed. A room-conflict check prevents another session from opening in the same named room. A fixed beacon remains physically active, but it cannot resolve to a session before state 2 or after state 4.
+
+![Attendance workflow](assets/report/attendance_workflow.png)
+
+*Figure 3.2. Lecturer broadcast, student scan, and proof-submission workflow.*
+
+## 3.8 Acoustic Proof Design
+
+### 3.8.1 Compact Token
+
+The current acoustic token has the following form:
+
+`ac2|session_base36|issued_epoch_base36|challenge`
+
+Base-36 encoding shortens the session and timestamp fields. The challenge is an eight-character random string generated with `SecureRandom`. The token omits descriptive course data because the backend can retrieve that information from the session identifier.
+
+### 3.8.2 Frame Encoding
+
+The encoder uses binary frequency-shift keying. Its principal parameters are shown in Table 3.1.
+
+**Table 3.1: Acoustic Encoder Parameters**
+
+| Parameter | Implemented value |
 | --- | --- |
-| FR1 | The system shall allow users to register as students or lecturers. |
-| FR2 | The system shall allow registered users to log in securely. |
-| FR3 | The system shall allow lecturers to create attendance sessions. |
-| FR4 | The system shall allow lecturers to start and stop attendance broadcast. |
-| FR5 | The lecturer app shall generate short-lived acoustic and BLE session proof values. |
-| FR6 | The student app shall scan for acoustic and BLE proof signals. |
-| FR7 | The student app shall allow Wi-Fi/LAN fallback verification where enabled. |
-| FR8 | The backend shall validate session identity and signal freshness. |
-| FR9 | The backend shall prevent duplicate attendance for the same student and session. |
-| FR10 | The backend shall bind a student account to a registered device ID. |
-| FR11 | The lecturer shall be able to view attendance records for a selected session. |
-| FR12 | The lecturer shall be able to export attendance records as CSV. |
+| Sampling rate | 44,100 samples/s |
+| Start guard | 17,800 Hz for 140 ms |
+| Binary zero | 18,400 Hz |
+| Binary one | 18,900 Hz |
+| Stop guard | 19,400 Hz for 140 ms |
+| Bit duration | 12 ms |
+| Preamble | `10101010` |
+| Length field | 8 bits |
+| Integrity byte | XOR checksum |
+| Amplitude coefficient | 0.42 |
+| Frame repetitions | 5 |
+| Inter-frame gap | 18 ms |
 
-## 3.7 Non-Functional Requirements
+The encoder converts the UTF-8 token into bytes, prefixes the preamble and payload length, appends an XOR checksum, and generates a tapered sine wave for each bit. A four-millisecond amplitude ramp reduces abrupt edges at tone boundaries.
 
-The non-functional requirements describe how the system should behave.
+### 3.8.3 Decoding
 
-| Requirement ID | Requirement |
-| --- | --- |
-| NFR1 | The system should be easy for lecturers and students to use during class. |
-| NFR2 | Attendance submission should be fast enough for classroom use. |
-| NFR3 | The backend should validate critical attendance rules server-side. |
-| NFR4 | Error messages should be understandable and not expose raw technical details. |
-| NFR5 | The system should run on Android devices for the current prototype. |
-| NFR6 | The system should support local network testing through an APK without USB debugging. |
-| NFR7 | The design should allow future extension with fixed BLE beacons. |
-| NFR8 | The system should minimize biometric and privacy-sensitive data in the current scope. |
+The decoder records at 44.1 kHz for up to six seconds. A high-pass filter at 17.2 kHz and low-pass filter at 19.7 kHz isolate the intended band. Goertzel-style tone-energy measurements are evaluated in 12 ms windows. Start and stop guards, the preamble, length, payload, and checksum are then checked.
 
-## 3.8 System Architecture
+Diagnostics distinguish low ultrasonic energy, missing guards, ambiguous bit decisions, incomplete frames, and checksum failure. These messages support testing but are translated into concise user-facing guidance in the app.
 
-The system uses a client-server architecture. The mobile app is the client, while the Django backend acts as the server. Native Android code is used where Flutter alone is not sufficient, especially for acoustic transmission/decoding and BLE advertising/scanning.
+The acoustic token is not accepted on local decode alone. The backend checks the encoded session, issue time, challenge, proof digest, authenticated student, session status, duplicate record, and replay record.
 
-Figure 3.1 shows the high-level system architecture.
+## 3.9 BLE Proof Design
 
-```mermaid
-flowchart LR
-    Lecturer[Lecturer Android App] -->|Create session| Backend[Django REST API]
-    Backend -->|Session data| Lecturer
-    Lecturer -->|BLE nonce broadcast| Student[Student Android App]
-    Lecturer -->|Acoustic token broadcast| Student
-    Student -->|Wi-Fi/LAN fallback proof| Backend
-    Student -->|Attendance proof submission| Backend
-    Backend -->|Validation result| Student
-    Backend -->|Reports and CSV data| Lecturer
-    Backend --> Database[(SQLite Database)]
-```
+### 3.9.1 Lecturer-Device BLE
 
-Figure 3.1: High-level system architecture.
+The lecturer BLE value has the form:
 
-The main components are:
+`ble|session_id|issued_epoch|nonce`
 
-1. Flutter mobile application: provides the lecturer and student user interfaces.
-2. Android native layer: handles acoustic transmission, acoustic decoding, BLE advertising, BLE scanning, and permission checks.
-3. Django REST backend: manages authentication, sessions, attendance proof validation, reports, and device binding.
-4. SQLite database: stores users, sessions, attendance proofs, replay guards, and device trust data.
+It is placed in service data under the project service UUID. The foreground service rotates the nonce at the same 45-second interval as the acoustic challenge. The student parser validates the four fields and evaluates local freshness before enabling submission. The server enforces the 60-second signal lifetime independently.
 
-## 3.9 User Roles
+### 3.9.2 Registered Room Beacon
 
-The system has two main roles.
+Two beacon formats are supported:
 
-### 3.9.1 Lecturer
+`beacon|ibeacon|uuid|major|minor`
 
-The lecturer can:
+`beacon|eddystone_uid|namespace_id|instance_id`
 
-1. Register and log in.
-2. Create a class session.
-3. Start and stop attendance broadcast.
-4. View live sessions.
-5. Delete sessions where necessary.
-6. View validation reports.
-7. Export attendance records as CSV.
+The CP27 can expose several frames, but the project registers only the selected iBeacon or Eddystone UID identity. A `RegisteredBeacon` record stores the readable beacon name, room, format fields, reference RSSI, minimum accepted RSSI, transmit power, advertising interval, active state, and notes.
 
-### 3.9.2 Student
+The fixed beacon does not carry a session nonce. A student first sends the observed beacon identity and RSSI to the resolve endpoint. The server finds a unique active beacon, confirms its room, closes expired sessions, and returns the one open session for that room. The final proof repeats the same identity so validation is not based only on the earlier lookup.
 
-The student can:
+### 3.9.3 BLE Source Selection
 
-1. Register and log in.
-2. Scan for attendance proof through BLE and acoustic channels.
-3. Use Wi-Fi/LAN fallback where allowed.
-4. Submit attendance proof.
-5. View attendance history.
-6. View profile and device information.
+The scanner collects nearby results for ten seconds, deduplicates advertisements, and identifies the strongest valid lecturer payload and strongest recognised beacon payload. Selection follows three cases:
 
-## 3.10 Attendance Proof Workflow
+1. if one source is at least 10 dB stronger, select that source;
+2. if both are present within the 10 dB margin, retain both sources; or
+3. if only one valid source is present, use that source.
 
-The attendance workflow begins when a lecturer creates a session. The session contains the course code, course title, lecturer name, room, start time, active status, and token version. Once the session is created, the lecturer starts broadcasting. The mobile app then generates short-lived proof values for the active session.
+The selected RSSI is the stronger observation. When both sources are retained, the final proof contains both the current lecturer nonce and beacon identity. The server validates each supplied source.
 
-Figure 3.2 shows the attendance proof workflow.
+## 3.10 Proof Construction and Integrity
 
-```mermaid
-sequenceDiagram
-    participant L as Lecturer App
-    participant S as Student App
-    participant B as Backend API
-    participant D as Database
+The student proof contains:
 
-    L->>B: Create session
-    B->>D: Save session
-    B-->>L: Return session ID
-    L->>L: Generate acoustic token and BLE nonce
-    L-->>S: Broadcast BLE/acoustic proof
-    S->>S: Scan and decode available proof
-    S->>B: Submit attendance proof
-    B->>B: Validate session, freshness, duplicate, replay, device trust
-    B->>D: Save attendance if valid
-    B-->>S: Return submission result
-    B-->>L: Report data available
-```
+1. session identifier;
+2. authenticated student identifier;
+3. installation device identifier;
+4. acoustic token, if captured;
+5. lecturer BLE nonce, if captured;
+6. room-beacon proof, if captured;
+7. RSSI value;
+8. beacon RSSI where available;
+9. UTC observation time; and
+10. SHA-256 digest.
 
-Figure 3.2: Attendance proof workflow.
+The digest input is the pipe-separated sequence of session, student, device, acoustic token, BLE nonce, a reserved compatibility field, beacon proof, RSSI, and the exact observation-time string sent by the client. The backend reconstructs the same sequence and compares digests with a constant-time function.
 
-## 3.11 Acoustic Proof Design
+This digest detects accidental corruption and simple field editing between proof construction and API validation. It is not a digital signature because no secret key is held in secure hardware on the client. A determined attacker who controls a modified client can recompute SHA-256. The decisive protections remain authenticated identity, session ownership, signal parsing, freshness, device binding, database constraints, and server policy.
 
-The acoustic proof channel uses the lecturer device speaker and the student device microphone. The lecturer app transmits a session-specific token using Android native code. The student app records from the microphone and attempts to decode the token.
+## 3.11 Backend Validation Pipeline
 
-The acoustic payload contains:
+The validation order is designed to reject invalid context before creating any record:
 
-1. Session ID.
-2. Issued timestamp.
-3. Challenge value.
+1. confirm that the request timestamp is no more than 120 seconds old and not more than 10 seconds in the future;
+2. confirm that the session is active, open, owned by a lecturer, and within its closing time;
+3. require at least one supported acoustic, lecturer BLE, or room-beacon source;
+4. parse every supplied proof format;
+5. compare the acoustic or lecturer BLE session identifier with the selected session;
+6. enforce the 60-second lifetime for rotating signals;
+7. resolve and validate a supplied fixed beacon, room, and RSSI;
+8. compare submitted student identity with the authenticated account;
+9. reject prior use of the same rotating challenge or nonce by that student in the session;
+10. reject an existing attendance record for that student and session;
+11. recompute the SHA-256 digest;
+12. verify or bind the installation identifier; and
+13. create the proof and replay record atomically.
 
-The backend accepts the acoustic token only if:
+The final uniqueness constraints handle requests that pass application checks concurrently. An integrity error is translated into an understandable duplicate/replay response.
 
-1. The token format is valid.
-2. The token session ID matches the selected attendance session.
-3. The token is fresh within the allowed time window.
-4. The token has not already been used in a replay attempt.
+![Validation flow](assets/report/validation_flow.png)
 
-The acoustic channel is useful because it demonstrates signal encoding and decoding using commodity smartphone hardware. However, current testing shows that it should be treated as short-range proof. It is affected by noise, microphone sensitivity, speaker frequency response, and phone orientation. This is consistent with near-ultrasonic communication research, which shows that consumer hardware can exchange short tokens but that performance depends on hardware and environment (Getreuer et al., 2018; Jia et al., 2022).
+*Figure 3.3. Server-side attendance proof validation pipeline.*
 
-## 3.12 BLE Proof Design
+## 3.12 Device Binding and Fraud Controls
 
-The BLE proof channel uses Bluetooth Low Energy advertising and scanning. The lecturer device advertises a short-lived nonce, and the student device scans for it. BLE does not require pairing between lecturer and student phones, which makes it suitable for classroom use.
+On first valid student use, the installation identifier may be bound to the profile. The database permits one non-empty identifier for only one student profile. The identifier is preserved when the user logs out; deleting it during logout would cause the legitimate installation to appear new at the next login. A second student cannot register or bind the same identifier.
 
-The BLE payload contains:
+Device binding addresses one scenario: a student logging into several accounts on the same application installation. It does not prevent a student from carrying a friend's already registered phone into class. It also does not equal Android hardware attestation. The report therefore describes device binding as a deterrent and trust signal, not as proof of personal identity.
 
-1. Session ID.
-2. Issued timestamp.
-3. Nonce value.
+Duplicate attendance is enforced by a unique pair of session and student. Replay constraints are deliberately student-scoped. Every student in a classroom may legitimately receive the same broadcast nonce, so a global uniqueness rule would accept only the first student. The implemented constraints instead prevent the same student from using the same acoustic challenge or BLE nonce twice within one session.
 
-The backend accepts the BLE proof only if:
+Other controls include lecturer ownership, one open session per room, fixed-beacon registration, minimum RSSI, signal expiry, proof digest, token revocation at logout, password validation, and read-only audit records.
 
-1. The BLE nonce format is valid.
-2. The nonce belongs to the selected session.
-3. The nonce is fresh.
-4. The nonce has not been reused.
-5. The student has not already submitted attendance for the session.
+## 3.13 Database Design
 
-BLE is treated as the main practical classroom-range signal in the current implementation. After enabling required permissions such as location and nearby-device access, BLE was detectable at a longer range than acoustic proof in real-device testing. This does not make BLE a perfect distance measurement tool. RSSI is known to vary due to obstacles, orientation, device hardware, and indoor multipath effects (Ramirez et al., 2021). Therefore, the system uses BLE as proximity evidence rather than exact positioning.
+The core data model is shown in Figure 3.4 and summarised in Table 3.2.
 
-The design also allows future extension with fixed BLE beacons. A fixed beacon would not amplify the lecturer phone. Instead, it would act as another BLE broadcaster in the classroom. This is useful for larger classrooms because multiple beacons can be placed at strategic positions.
+![Entity relationship diagram](assets/report/entity_relationship.png)
 
-## 3.13 Wi-Fi/LAN Fallback Design
+*Figure 3.4. Core relational entities and cardinalities.*
 
-The Wi-Fi/LAN proof channel is included as a fallback. It is used when a student phone is on the same local classroom network as the backend. The student app generates a short Wi-Fi proof for the latest active session and submits it to the backend.
+**Table 3.2: Core Database Entities**
 
-The backend accepts Wi-Fi/LAN proof only if:
-
-1. The proof format is valid.
-2. The proof belongs to the selected session.
-3. The proof is fresh.
-4. The request reaches the backend from a private local network address.
-5. The normal authentication, duplicate-prevention, and device-trust rules pass.
-
-Wi-Fi/LAN is not treated as a strong proximity technology because network signals can extend outside the exact room. Its purpose in this project is to provide a controlled fallback for demonstrations and exceptional cases where BLE or acoustic reception fails. It can also support APK testing without USB debugging.
-
-## 3.14 Backend Validation Logic
-
-The backend is responsible for final attendance validation. This is necessary because the mobile client can be modified or misused if all trust decisions are made locally.
-
-The validation logic follows these steps:
-
-```text
-1. Confirm that the request is from an authenticated student.
-2. Confirm that the selected session exists and is active.
-3. Confirm that the submitted student ID matches the authenticated profile.
-4. Confirm that the device ID is present.
-5. Check device binding:
-   - If the student has no registered device, bind the first submitted device.
-   - If the device belongs to another student, reject the proof.
-   - If the student already has a different registered device, reject the proof.
-6. Parse acoustic, BLE, or Wi-Fi/LAN proof.
-7. Confirm that at least one valid proof path exists.
-8. Confirm that proof session ID matches the selected session.
-9. Confirm that proof timestamp is fresh.
-10. Check replay guard for acoustic/BLE proof.
-11. Check that the student has not already submitted for the session.
-12. Save attendance proof if all required checks pass.
-```
-
-This design supports automatic decision-making. The lecturer does not need to manually approve normal attendance records. Suspicious cases, such as device mismatch or duplicate submission, are rejected by the system.
-
-## 3.15 Database Design
-
-The database stores user profiles, sessions, attendance proofs, and replay guards. The main database entities are shown in Table 3.1.
-
-| Entity | Purpose | Important Fields |
+| Entity | Purpose | Selected fields and constraints |
 | --- | --- | --- |
-| UserProfile | Stores student or lecturer profile data | user, role, matric_number, registered_device_id |
-| Session | Stores class session data | course_code, course_title, lecturer_name, room, starts_at, active |
-| AttendanceProof | Stores submitted attendance records | session, student_id, device_id, acoustic_token, ble_nonce, wifi_proof, rssi, observed_at |
-| AttendanceReplayGuard | Prevents reuse of acoustic/BLE challenge values | session, challenge_token, ble_nonce, student_id |
+| User | Django authentication identity | username, password hash, full name, email, active/staff flags |
+| UserProfile | Attendance role and device association | one-to-one user; role; unique matric number; one unique non-empty student device ID |
+| Session | Lecturer-owned class and attendance state | course code/title; room; times; owner; open/close state; 15-minute window |
+| AttendanceProof | Accepted attendance record | one record per session/student; signal fields; device trust; RSSI; observed and creation times |
+| RegisteredBeacon | Fixed room-beacon configuration | iBeacon or Eddystone identity; room; minimum RSSI; transmit settings; active state |
+| AttendanceReplayGuard | Student-scoped rotating-signal use | unique session/student/challenge and session/student/BLE nonce |
+| Token | API authentication | one token associated with a signed-in user; revoked on logout |
 
-Table 3.1: Main database entities.
+The logical design presented in Figure 3.4 contains only the entities and fields used by the active attendance workflow. Historical migration compatibility does not alter the accepted acoustic and BLE proof paths.
 
-The AttendanceProof entity has a unique constraint on session and student ID. This prevents one student from submitting more than one attendance proof for the same session. The AttendanceReplayGuard entity prevents old acoustic or BLE proof values from being reused.
+## 3.14 Data Flows
 
-## 3.16 Data Flow Design
+### 3.14.1 Registration and Login
 
-The data flow has four main stages.
+A registrant submits full name, role, identity, password, and installation identifier. Student matric numbers are normalised to uppercase and checked case-insensitively. Django password validators enforce the password policy. User and profile creation occur in a transaction. Login is case-insensitive, returns an API token and profile summary, and loads the role-specific portal.
 
-### 3.16.1 Registration and Authentication
+### 3.14.2 Session Creation and Opening
 
-Users register as either students or lecturers. Students provide a matric number, while lecturers provide a username. The backend stores authentication data and returns an access token after login.
+The lecturer submits course and room data. The API records the authenticated lecturer as owner. On opening, the API checks room conflict, sets attendance times, and returns the session. The app then starts the foreground service with the first generated acoustic and BLE values.
 
-### 3.16.2 Session Creation
+### 3.14.3 Student Scan
 
-The lecturer creates a session through the mobile app. The backend stores the session and returns the session ID. The lecturer can then start broadcasting proof signals.
+The student app confirms required permissions and Bluetooth state. Acoustic and BLE scans run concurrently. Local parsing records diagnostic evidence. A fixed beacon is resolved through the backend because its frame does not contain a session. The app retrieves session metadata and enables submission only for a valid current path.
 
-### 3.16.3 Proof Capture and Submission
+### 3.14.4 Submission and Reporting
 
-The student scans for acoustic and BLE signals or uses Wi-Fi/LAN fallback if necessary. The app fills the proof fields and submits them to the backend with the device ID and timestamp.
+The app constructs and posts the proof. On success, it records the session locally to prevent another immediate submission and displays a success confirmation. The backend remains the authoritative duplicate guard. The lecturer selects a session to view student rows and may expand a row for matric number, course, room, device, and scan mode before exporting CSV.
 
-### 3.16.4 Report Generation
+## 3.15 User Interface and Experience Design
 
-The lecturer retrieves records for the selected session. The report displays student details, course details, room, device ID, and scan mode. The lecturer can export the report as CSV.
+The interface uses a restrained mobile visual language rather than decorative dashboards or promotional copy. It applies a consistent colour palette, typography hierarchy, spacing scale, status language, and bottom navigation. Content is centred within a maximum width so that the web build remains usable without turning the Android interface into a desktop-style page.
 
-## 3.17 Anti-Fraud Design
+The lecturer session form requests only information the lecturer must provide. Lecturer name and token version are derived internally. Room selection uses known beacon rooms while allowing the course/session information to remain readable. Active broadcast status is presented in user terms rather than displaying raw nonce values.
 
-The anti-fraud design uses multiple layers rather than relying on one perfect control.
+The Live and Reports pages use search fields and compact one-line student/session rows. A student row expands on tap to show only the operational details requested for classroom use. This structure scales better than a large card for every student.
 
-### 3.17.1 Device Binding
+The student scan page separates action, evidence, and result. The principal action is a single scan button. Raw acoustic and BLE fields are not intended as manual inputs. A successful scan states the source and session; an unsuccessful scan gives one recovery action, such as enabling Bluetooth, granting permission, moving closer, or scanning again.
 
-When a student submits attendance for the first time, the backend can bind the student account to that device ID. Future submissions must come from the registered device. This reduces the risk of a student logging into another student's account from a different phone.
+Error messages are mapped from network and API exceptions into short descriptions. Stack traces, socket exception text, and internal class names are not shown to users.
 
-Device binding does not solve every possible fraud scenario. For example, a student could physically carry a friend's phone to class. However, it reduces account-sharing fraud and creates an audit trail when one device is repeatedly used across accounts.
+## 3.16 Deployment Design
 
-### 3.17.2 Duplicate Prevention
+The Android application uses `https://sa-acoustic-ble.onrender.com` as its default API. The value can still be replaced at build time through `API_BASE_URL` for controlled development, but the installed application does not expose an IP-address editor. This prevents stale LAN settings and removes the need to rebuild whenever a local address changes.
 
-The backend enforces one attendance proof per student per session. This prevents repeated submissions and reduces confusion in the lecturer report.
+The Django service reads its secret key, debug state, allowed hosts, CSRF origins, database URL, and security settings from environment variables. Development uses SQLite. Hosted operation uses PostgreSQL. Static files are served through the deployment configuration, and a health endpoint allows the hosting platform or tester to confirm that the API is awake.
 
-### 3.17.3 Freshness Checks
+The shared mobile API client applies a 75-second timeout to tolerate a free-tier cold start and converts timeouts into understandable service-waking guidance. A logout request revokes the server token; local credentials are cleared even if the network is unavailable.
 
-Acoustic, BLE, and Wi-Fi proof values include timestamps. The backend rejects stale proof values. This reduces the risk of replaying an old broadcast.
+## 3.17 Software and Hardware Tools
 
-### 3.17.4 Replay Guard
+**Table 3.3: Development and Test Tools**
 
-For acoustic and BLE proof, the backend stores used challenge or nonce values in a replay guard table. If the same value appears again, the system rejects it.
+| Category | Tool or component | Use |
+| --- | --- | --- |
+| Mobile framework | Flutter and Dart | Cross-platform UI, state, HTTP services, local storage |
+| Android native layer | Kotlin | Foreground service, audio capture/playback, BLE advertising |
+| Backend | Python, Django, Django REST Framework | Authentication, sessions, validation, reporting, admin |
+| Database | SQLite and PostgreSQL | Local development and hosted relational storage |
+| Hosting | Render | Public Django API deployment |
+| Version control | Git and GitHub | Phase tracking, history, and remote backup |
+| Lecturer test phone | Redmi 13C | Main acoustic and BLE broadcaster |
+| Student test phones | POCO C71, Samsung A05, Vivo Y33 | Signal scanning and proof submission |
+| Fixed beacon | DX-CP27 Mini | iBeacon/Eddystone room identity |
 
-### 3.17.5 Permission Guidance
+## 3.18 Verification Plan
 
-The Android app now prompts users for required runtime permissions before scan or broadcast. This is important because missing location or nearby-device permission can make BLE appear weak or unavailable. Android requires runtime approval for Bluetooth scan, advertise, and connect operations on newer versions (Android Developers, n.d.).
+Verification was divided into four levels.
 
-## 3.18 User Interface Design
+**Backend API tests** cover authorisation, session ownership, room conflict, session expiry, valid and duplicate BLE proof, shared classroom nonce use by different students, digest tampering, identity mismatch, unsupported proof rejection, compact acoustic proof, beacon room and RSSI validation, ambiguous room state, unique device registration, profile privacy, and logout token revocation.
 
-The mobile app is designed around two user journeys: lecturer workflow and student workflow.
+**Flutter tests** cover signed-out rendering, student and lecturer layouts at the test mobile viewport, and persistence of the installation identifier after logout.
 
-### 3.18.1 Lecturer Interface
+**Native build verification** compiles the Android/Kotlin modules, foreground service, BLE advertiser, and acoustic components against the configured Android toolchain.
 
-The lecturer interface includes:
+**Physical tests** cover registration, login, permission prompts, session creation, foreground broadcast, acoustic detection, BLE distance bands, obstacles, CP27 detection, proof submission, duplicate behaviour, hosted API wake-up, report display, and CSV export. Chapter Four reports only observations actually recorded during these tests.
 
-1. Session creation page.
-2. Broadcast control button.
-3. Live session page.
-4. Attendance validation report.
-5. CSV export option.
-6. Profile page.
+## 3.19 Ethical, Privacy, and Security Considerations
 
-### 3.18.2 Student Interface
+The application stores identity, attendance, device association, session, and signal metadata. These records should be collected for attendance administration only and protected by role-based access. An institutional deployment should define retention periods, backup policy, device-change approval, breach response, and a process by which a student can query or correct an attendance record.
 
-The student interface includes:
+The active design avoids biometric collection. The installation identifier is shown in a shortened display form where a full identifier is unnecessary. The API uses HTTPS in hosted operation, passwords are hashed by Django, and secrets are supplied through the environment rather than committed to the repository.
 
-1. Signal scan page.
-2. Acoustic/BLE scan button.
-3. Wi-Fi/LAN fallback verification button.
-4. Proof submission button.
-5. Attendance history.
-6. Profile and device information page.
+No proximity method should be represented as infallible. BLE can cross room boundaries or be relayed, acoustic decoding can reject a present student, and a registered phone can be carried by another person. These limitations should be disclosed to users and considered in any disciplinary use of the records. Attendance evidence should support academic administration, not replace fair review of legitimate technical exceptions.
 
-The app gives clearer guidance when permissions are missing or when a signal is not detected. This improves usability during real classroom tests.
+## 3.20 Summary
 
-## 3.19 Software and Hardware Tools
+This chapter described the iterative method and the implemented architecture of the smart attendance system. The system separates signal capture from server acceptance, uses rotating lecturer acoustic and BLE evidence, supports a fixed beacon only within a registered room and open session, and applies identity, digest, freshness, duplicate, replay, device, ownership, and RSSI controls.
 
-The tools used in the project are listed in Table 3.2.
-
-| Category | Tool |
-| --- | --- |
-| Mobile framework | Flutter |
-| Native Android language | Kotlin |
-| Backend framework | Django and Django REST Framework |
-| Database | SQLite for prototype development |
-| Mobile platform | Android |
-| Communication channels | Acoustic signal, BLE, Wi-Fi/LAN |
-| Version control | Git and GitHub |
-| Development environment | Windows PC, Android phones |
-
-Table 3.2: Development tools.
-
-## 3.20 Testing Plan
-
-The system will be evaluated using real Android devices. The testing plan includes:
-
-1. Login and registration testing.
-2. Lecturer session creation testing.
-3. Acoustic scan testing at different distances.
-4. BLE scan testing at different distances.
-5. Permission-state testing for Bluetooth, location, and microphone.
-6. Wi-Fi/LAN fallback testing on the same local network.
-7. Duplicate submission testing.
-8. Device binding and device mismatch testing.
-9. CSV export testing.
-10. Classroom-like noise and distance testing.
-
-The final results will be reported in Chapter Four. Chapter Four should include measured distances, device models, room conditions, success/failure outcomes, and screenshots where necessary.
-
-## 3.21 Ethical and Privacy Considerations
-
-The current system avoids making facial recognition part of the main attendance submission flow. This reduces privacy and reliability concerns associated with camera quality, lighting, and biometric storage. The system stores device IDs for device-trust purposes, but these should be handled carefully because they relate to user identity and attendance behaviour.
-
-For institutional deployment, the school should define clear policies for:
-
-1. Who can view attendance records.
-2. How long records are retained.
-3. How device reset requests are handled.
-4. How students are informed about device binding.
-5. How exported CSV files are protected.
-
-## 3.22 Summary
-
-This chapter presented the system analysis and design of the smart attendance system. The design uses BLE as the main practical proximity channel, acoustic beaconing as a short-range copresence channel, and Wi-Fi/LAN as a minimal fallback. The backend validates attendance proof using session identity, freshness, duplicate prevention, replay protection, and device binding. The chapter also presented the architecture, user roles, proof workflow, database design, anti-fraud logic, user interface design, tools, and testing plan. Chapter Four will present implementation details, test results, and evaluation.
+The design also addresses operational requirements that became visible during testing: concurrent scanning reduces wait time, a foreground service preserves lecturer broadcast across navigation and screen lock, compact reports support larger lists, and a hosted API removes dependence on a local address. Chapter Four evaluates the resulting implementation through automated checks and four-device physical observations.

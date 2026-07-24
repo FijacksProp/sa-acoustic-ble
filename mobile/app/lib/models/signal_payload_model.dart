@@ -12,7 +12,8 @@ class AcousticPayload {
   final DateTime issuedAt;
 
   bool isExpired({int expirySeconds = 60}) {
-    return DateTime.now().toUtc().difference(issuedAt).inSeconds > expirySeconds;
+    return DateTime.now().toUtc().difference(issuedAt).inSeconds >
+        expirySeconds;
   }
 }
 
@@ -28,6 +29,7 @@ class BlePayload {
   final DateTime issuedAt;
 
   bool isExpired({int expirySeconds = 60}) {
-    return DateTime.now().toUtc().difference(issuedAt).inSeconds > expirySeconds;
+    return DateTime.now().toUtc().difference(issuedAt).inSeconds >
+        expirySeconds;
   }
 }

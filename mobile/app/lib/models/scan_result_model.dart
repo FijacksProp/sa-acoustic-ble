@@ -43,7 +43,9 @@ class ScanResultModel {
           ? DateTime.now().toUtc()
           : DateTime.parse(observed).toUtc(),
       bleNonce: map['bleNonce']?.toString(),
-      rssi: map['rssi'] is int ? map['rssi'] as int : int.tryParse('${map['rssi']}'),
+      rssi: map['rssi'] is int
+          ? map['rssi'] as int
+          : int.tryParse('${map['rssi']}'),
       sessionId: map['sessionId'] is int
           ? map['sessionId'] as int
           : int.tryParse('${map['sessionId']}'),

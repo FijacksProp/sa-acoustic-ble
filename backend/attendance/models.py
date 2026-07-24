@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models import Q
 
 
 class Session(models.Model):
@@ -97,6 +98,15 @@ class UserProfile(models.Model):
     registered_device_id = models.CharField(max_length=128, blank=True)
     registered_device_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("registered_device_id",),
+                condition=Q(role="student") & ~Q(registered_device_id=""),
+                name="unique_student_registered_device",
+            ),
+        ]
+
     def __str__(self) -> str:
         return f"{self.matric_number} ({self.role})"
 
@@ -138,7 +148,18 @@ class AttendanceReplayGuard(models.Model):
     used_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("session", "challenge_token", "ble_nonce")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("session", "student_id", "challenge_token"),
+                condition=~Q(challenge_token=""),
+                name="uniq_student_acoustic_signal",
+            ),
+            models.UniqueConstraint(
+                fields=("session", "student_id", "ble_nonce"),
+                condition=~Q(ble_nonce=""),
+                name="uniq_student_ble_signal",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.session_id}:{self.challenge_token}:{self.ble_nonce}"
